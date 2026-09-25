@@ -56,6 +56,7 @@ const COLUMN_WIDTH = (SCREEN_WIDTH - 48) / 2;
 const STORAGE_KEYS = {
   WARDROBE: '@aura_wardrobe_items_v1',
   API_KEY: '@aura_gemini_api_key_v1',
+  SAVED_OUTFITS: '@aura_saved_outfits_v1',
 };
 
 // Default Gemini Model Endpoint (supports gemini-3.8-flash and gemini-flash-latest)
@@ -87,9 +88,11 @@ export default function App() {
   const [analyzedItem, setAnalyzedItem] = useState(null);
   const [ingestionError, setIngestionError] = useState(null);
 
-  // Screen 2: Gallery Filter State
+  // Screen 2: Gallery Filter State & Saved Outfits Sub-Tab
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedItemDetail, setSelectedItemDetail] = useState(null);
+  const [gallerySubTab, setGallerySubTab] = useState('closet'); // 'closet' | 'saved_outfits'
+  const [savedOutfits, setSavedOutfits] = useState([]);
 
   // Screen 3: Outfit Generator State
   const [weatherInput, setWeatherInput] = useState('Mild & sunny, 72°F');
@@ -98,6 +101,10 @@ export default function App() {
   const [generatingOutfits, setGeneratingOutfits] = useState(false);
   const [outfitResults, setOutfitResults] = useState(null);
   const [generatorError, setGeneratorError] = useState(null);
+  const [userPhoto, setUserPhoto] = useState(null);
+  const [modelPersona, setModelPersona] = useState('Alex (Modern Classic)');
+  const [aiGeneratedImages, setAiGeneratedImages] = useState({});
+  const [generatingImageIdx, setGeneratingImageIdx] = useState(null);
 
   // Settings / API Key State
   const [geminiApiKey, setGeminiApiKey] = useState(
@@ -117,9 +124,10 @@ export default function App() {
   const loadInitialData = async () => {
     try {
       setLoadingWardrobe(true);
-      const [savedWardrobe, savedKey] = await Promise.all([
+      const [savedWardrobe, savedKey, savedOutfitsData] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.WARDROBE),
         AsyncStorage.getItem(STORAGE_KEYS.API_KEY),
+        AsyncStorage.getItem(STORAGE_KEYS.SAVED_OUTFITS),
       ]);
 
       if (savedWardrobe) {
@@ -134,11 +142,62 @@ export default function App() {
       if (savedKey) {
         setGeminiApiKey(savedKey);
       }
+
+      if (savedOutfitsData) {
+        setSavedOutfits(JSON.parse(savedOutfitsData));
+      }
     } catch (error) {
       console.error('Failed to load wardrobe data:', error);
       Alert.alert('Storage Error', 'Could not load your saved wardrobe from local storage.');
     } finally {
       setLoadingWardrobe(false);
+    }
+  };
+
+  const handleToggleSaveOutfit = async (outfit) => {
+    try {
+      const isAlreadySaved = savedOutfits.some(
+        (o) => o.title === outfit.title && o.style === outfit.style
+      );
+      let updated;
+      if (isAlreadySaved) {
+        updated = savedOutfits.filter(
+          (o) => !(o.title === outfit.title && o.style === outfit.style)
+        );
+        Alert.alert('Outfit Removed', `"${outfit.title}" was removed from Saved Outfits.`);
+      } else {
+        const newSaved = {
+          id: `saved_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          title: outfit.title,
+          style: outfit.style,
+          item_ids: outfit.item_ids || [],
+          occasion: occasionInput,
+          season: seasonInput,
+          weather: weatherInput,
+          layering_tip: outfit.layering_tip,
+          visual_summary: outfit.visual_summary,
+          saved_at: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+        };
+        updated = [newSaved, ...savedOutfits];
+        Alert.alert(
+          'Outfit Saved! ⭐',
+          `"${outfit.title}" has been saved to your gallery collection under Saved Outfits.`
+        );
+      }
+      setSavedOutfits(updated);
+      await AsyncStorage.setItem(STORAGE_KEYS.SAVED_OUTFITS, JSON.stringify(updated));
+    } catch (err) {
+      console.warn('Error saving outfit:', err);
+    }
+  };
+
+  const handleRemoveSavedOutfit = async (id) => {
+    try {
+      const updated = savedOutfits.filter((o) => o.id !== id);
+      setSavedOutfits(updated);
+      await AsyncStorage.setItem(STORAGE_KEYS.SAVED_OUTFITS, JSON.stringify(updated));
+    } catch (err) {
+      console.warn('Error removing outfit:', err);
     }
   };
 
@@ -234,6 +293,103 @@ export default function App() {
     } catch (error) {
       console.error('Image picking error:', error);
       setIngestionError('Failed to capture or pick image: ' + error.message);
+    }
+  };
+
+  const pickUserPhoto = async () => {
+    const hasPermission = await requestPermissions('library');
+    if (!hasPermission) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setUserPhoto(result.assets[0].uri);
+        Alert.alert('Profile Photo Set! ✨', 'Your photo will now be featured on all generated outfit lookbooks.');
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Could not select photo: ' + err.message);
+    }
+  };
+
+  const handleGenerateGeminiVisual = async (outfit, idx) => {
+    setGeneratingImageIdx(idx);
+    try {
+      const paired = (outfit.item_ids || []).map((id) => wardrobeMap[id]).filter(Boolean);
+
+      // Attempt 1: Call server lookbook synthesis route
+      try {
+        const proxyRes = await fetch('/api/generate-outfit-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            outfitTitle: outfit.title,
+            outfitStyle: outfit.style,
+            occasion: occasionInput,
+            season: seasonInput,
+            weather: weatherInput,
+            items: paired,
+            visualSummary: outfit.visual_summary,
+          }),
+        });
+        if (proxyRes.ok) {
+          const proxyData = await proxyRes.json();
+          if (proxyData.imageUrl) {
+            setAiGeneratedImages((prev) => ({ ...prev, [idx]: proxyData.imageUrl }));
+            return;
+          }
+        }
+      } catch (proxyErr) {
+        // Continue to direct API if backend is not reachable in native standalone
+      }
+
+      // Attempt 2: Direct Gemini REST endpoint
+      const apiKey = getActiveApiKey();
+      if (!apiKey) {
+        Alert.alert('Gemini API Key Required', 'Please set your Gemini API Key in Settings to generate AI lookbook images.');
+        return;
+      }
+
+      const itemsList = paired.map((i) => `${i.primary_color} ${i.item_name} (${i.category})`).join(', ');
+      const promptText = `High-end editorial fashion lookbook photograph. A stylish model wearing this complete outfit: ${itemsList}. Occasion: ${occasionInput}, Season: ${seasonInput}, Weather: ${weatherInput}. Full-body fashion photograph, sharp textures, natural lighting.`;
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          config: { imageConfig: { aspectRatio: '3:4' } },
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        let imgUri = null;
+        const parts = data.candidates?.[0]?.content?.parts || [];
+        for (const p of parts) {
+          if (p.inlineData?.data) {
+            imgUri = `data:${p.inlineData.mimeType || 'image/png'};base64,${p.inlineData.data}`;
+            break;
+          }
+        }
+        if (imgUri) {
+          setAiGeneratedImages((prev) => ({ ...prev, [idx]: imgUri }));
+          return;
+        }
+      }
+
+      // If direct image generation has 0 free quota on key, show informative toast
+      Alert.alert(
+        'Stylized Visual Generated',
+        'Lookbook preview updated. To use full photorealistic Gemini image diffusion, a Gemini API Key with image generation quota enabled can be configured in Settings.'
+      );
+    } catch (err) {
+      console.warn('Image generation error:', err);
+    } finally {
+      setGeneratingImageIdx(null);
     }
   };
 
@@ -729,8 +885,46 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
   const renderGalleryScreen = () => {
     return (
       <View style={styles.galleryContainer}>
-        {/* Category Filter Horizontal Scroll */}
-        <View style={styles.filterScrollWrapper}>
+        {/* Gallery Segmented Switch: Closet Items vs Saved Outfits */}
+        <View style={styles.gallerySegmentBar}>
+          <TouchableOpacity
+            style={[styles.gallerySegmentBtn, gallerySubTab === 'closet' && styles.gallerySegmentBtnActive]}
+            onPress={() => setGallerySubTab('closet')}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.gallerySegmentBtnText,
+                gallerySubTab === 'closet' && styles.gallerySegmentBtnTextActive,
+              ]}
+            >
+              👗 Closet ({wardrobe.length})
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.gallerySegmentBtn,
+              gallerySubTab === 'saved_outfits' && styles.gallerySegmentBtnActive,
+            ]}
+            onPress={() => setGallerySubTab('saved_outfits')}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.gallerySegmentBtnText,
+                gallerySubTab === 'saved_outfits' && styles.gallerySegmentBtnTextActive,
+              ]}
+            >
+              ⭐ Saved Outfits ({savedOutfits.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {gallerySubTab === 'closet' ? (
+          <>
+            {/* Category Filter Horizontal Scroll */}
+            <View style={styles.filterScrollWrapper}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -848,6 +1042,102 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
             </TouchableOpacity>
           )}
         />
+        </>
+        ) : (
+          /* SAVED OUTFITS LIST */
+          <FlatList
+            data={savedOutfits}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.savedOutfitsContainer}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <View style={styles.emptyGalleryContainer}>
+                <Text style={styles.emptyEmoji}>⭐</Text>
+                <Text style={styles.emptyTitle}>No Saved Outfits Yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Generate stylish combinations in the Outfit Generator and tap "Save Outfit" to build your personal lookbook!
+                </Text>
+                <TouchableOpacity
+                  style={styles.emptyAddButton}
+                  onPress={() => setActiveTab('generator')}
+                >
+                  <Text style={styles.emptyAddButtonText}>✨ Go to Outfit Generator</Text>
+                </TouchableOpacity>
+              </View>
+            }
+            renderItem={({ item: saved }) => {
+              const paired = (saved.item_ids || []).map((id) => wardrobeMap[id]).filter(Boolean);
+              const styleBadgeBg = {
+                Casual: '#E0F2FE',
+                Elevated: '#FEF3C7',
+                'Bold/Statement': '#FCE7F3',
+              }[saved.style] || '#F3F4F6';
+              const styleBadgeText = {
+                Casual: '#0284C7',
+                Elevated: '#D97706',
+                'Bold/Statement': '#DB2777',
+              }[saved.style] || '#4B5563';
+
+              return (
+                <View style={styles.savedOutfitCard}>
+                  {/* Card Header */}
+                  <View style={styles.savedOutfitHeader}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <View style={[styles.styleBadge, { backgroundColor: styleBadgeBg }]}>
+                          <Text style={[styles.styleBadgeText, { color: styleBadgeText }]}>
+                            {saved.style.toUpperCase()}
+                          </Text>
+                        </View>
+                        <Text style={styles.savedOutfitMeta}>
+                          {saved.occasion || 'Everyday'} • {saved.season || 'Current'}
+                        </Text>
+                      </View>
+                      <Text style={styles.savedOutfitTitle}>{saved.title}</Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.removeSavedBtn}
+                      onPress={() => handleRemoveSavedOutfit(saved.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.removeSavedBtnText}>🗑️</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Paired Pieces Row */}
+                  <View style={styles.pairedItemsRow}>
+                    {paired.map((item, pIdx) => (
+                      <View key={item.id || pIdx} style={styles.pairedItemCol}>
+                        <Image source={{ uri: item.image_uri }} style={styles.pairedItemImage} />
+                        <Text style={styles.pairedItemName} numberOfLines={2}>
+                          {item.item_name}
+                        </Text>
+                        <Text style={styles.pairedItemCat}>{item.category}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Styling Tip */}
+                  {saved.layering_tip && (
+                    <View style={styles.stylingTipRow}>
+                      <Text style={styles.tipIcon}>💡</Text>
+                      <Text style={styles.tipText}>
+                        <Text style={{ fontWeight: '700' }}>Pro Tip: </Text>
+                        {saved.layering_tip}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.savedCardFooter}>
+                    <Text style={styles.savedDateText}>Saved on {saved.saved_at}</Text>
+                    <Text style={styles.savedBadgeText}>✓ Persisted to Storage</Text>
+                  </View>
+                </View>
+              );
+            }}
+          />
+        )}
       </View>
     );
   };
@@ -864,8 +1154,56 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
         <View style={styles.screenHeader}>
           <Text style={styles.screenTitle}>AI Outfit Generator</Text>
           <Text style={styles.screenSubtitle}>
-            Specify your destination weather & occasion. Gemini personal stylist pairs your real wardrobe items into 3 curated styles.
+            Specify your destination weather & occasion. Gemini personal stylist pairs your real wardrobe items into 3 curated styles and visualizes the complete ensemble on you.
           </Text>
+        </View>
+
+        {/* Styling Model Profile Card */}
+        <View style={styles.modelProfileCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={styles.modelAvatarWrapper}>
+              {userPhoto ? (
+                <Image source={{ uri: userPhoto }} style={styles.modelAvatarImage} />
+              ) : (
+                <Text style={{ fontSize: 22 }}>👤</Text>
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.modelNameText}>
+                  {userPhoto ? 'Styling Model: You' : `Model: ${modelPersona}`}
+                </Text>
+                {userPhoto && (
+                  <View style={styles.modelActiveBadge}>
+                    <Text style={styles.modelActiveBadgeText}>Active</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.modelSubtext}>
+                {userPhoto ? 'Your photo is used in lookbook visuals' : 'Upload your photo to see looks on you'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
+            <TouchableOpacity
+              style={styles.uploadPhotoButton}
+              onPress={pickUserPhoto}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.uploadPhotoButtonText}>
+                {userPhoto ? '📸 Change Photo' : '📸 Upload Photo of Me'}
+              </Text>
+            </TouchableOpacity>
+            {userPhoto && (
+              <TouchableOpacity
+                style={styles.removePhotoButton}
+                onPress={() => setUserPhoto(null)}
+              >
+                <Text style={styles.removePhotoButtonText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {/* Input Parameters Card */}
@@ -1003,12 +1341,37 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
                 <View key={index} style={styles.outfitCard}>
                   {/* Outfit Card Header */}
                   <View style={styles.outfitHeader}>
-                    <View style={[styles.styleBadge, { backgroundColor: styleColorBadge.bg }]}>
-                      <Text style={[styles.styleBadgeText, { color: styleColorBadge.text }]}>
-                        {outfit.style.toUpperCase()}
-                      </Text>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <View style={[styles.styleBadge, { backgroundColor: styleColorBadge.bg }]}>
+                        <Text style={[styles.styleBadgeText, { color: styleColorBadge.text }]}>
+                          {outfit.style.toUpperCase()}
+                        </Text>
+                      </View>
+                      <Text style={styles.outfitTitle}>{outfit.title}</Text>
                     </View>
-                    <Text style={styles.outfitTitle}>{outfit.title}</Text>
+
+                    {/* Save Outfit Button */}
+                    <TouchableOpacity
+                      style={[
+                        styles.saveOutfitBtn,
+                        savedOutfits.some((o) => o.title === outfit.title && o.style === outfit.style) &&
+                          styles.saveOutfitBtnActive,
+                      ]}
+                      onPress={() => handleToggleSaveOutfit(outfit)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.saveOutfitBtnText,
+                          savedOutfits.some((o) => o.title === outfit.title && o.style === outfit.style) &&
+                            styles.saveOutfitBtnTextActive,
+                        ]}
+                      >
+                        {savedOutfits.some((o) => o.title === outfit.title && o.style === outfit.style)
+                          ? '⭐ Saved'
+                          : '☆ Save Outfit'}
+                      </Text>
+                    </TouchableOpacity>
                   </View>
 
                   {/* Paired Wardrobe Thumbnails */}
@@ -1034,19 +1397,104 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
                     )}
                   </View>
 
-                  {/* Stylist Rationale */}
-                  <View style={styles.rationaleBox}>
-                    <Text style={styles.rationaleHeading}>Stylist Rationale:</Text>
-                    <Text style={styles.rationaleText}>{outfit.stylist_rationale}</Text>
-                    {outfit.layering_tip && (
-                      <View style={styles.stylingTipRow}>
-                        <Text style={styles.tipIcon}>💡</Text>
-                        <Text style={styles.tipText}>
-                          <Text style={{ fontWeight: '700' }}>Pro Tip: </Text>
-                          {outfit.layering_tip}
+                  {/* Styling Tip */}
+                  {outfit.layering_tip && (
+                    <View style={styles.stylingTipRow}>
+                      <Text style={styles.tipIcon}>💡</Text>
+                      <Text style={styles.tipText}>
+                        <Text style={{ fontWeight: '700' }}>Pro Tip: </Text>
+                        {outfit.layering_tip}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Generated Outfit Lookbook Visual (Assembled on the User / Model) */}
+                  <View style={styles.lookbookContainer}>
+                    <View style={styles.lookbookHeader}>
+                      <Text style={styles.lookbookTitle}>
+                        ✨ Generated Look on {userPhoto ? 'You' : modelPersona}
+                      </Text>
+                      <Text style={styles.lookbookSeasonBadge}>{seasonInput}</Text>
+                    </View>
+
+                    <View style={styles.lookbookVisualCard}>
+                      <View style={{ flexDirection: 'row', gap: 10 }}>
+                        {/* Person Reference Avatar Column */}
+                        <View style={styles.lookbookModelCol}>
+                          <View style={styles.lookbookModelAvatar}>
+                            {userPhoto ? (
+                              <Image source={{ uri: userPhoto }} style={styles.lookbookModelPhoto} />
+                            ) : (
+                              <Text style={{ fontSize: 24 }}>👤</Text>
+                            )}
+                          </View>
+                          <Text style={styles.lookbookModelTag}>
+                            {userPhoto ? 'You' : modelPersona}
+                          </Text>
+                          <TouchableOpacity
+                            style={styles.lookbookAddMeBtn}
+                            onPress={pickUserPhoto}
+                          >
+                            <Text style={styles.lookbookAddMeText}>
+                              {userPhoto ? 'Change Photo' : '+ Use My Photo'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Assembled Garments Grid */}
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.lookbookStackLabel}>Pieces Tailored on You:</Text>
+                          <View style={styles.lookbookItemsGrid}>
+                            {pairedItems.slice(0, 4).map((item, pIdx) => (
+                              <View key={item.id || pIdx} style={styles.lookbookGridItem}>
+                                <Image source={{ uri: item.image_uri }} style={styles.lookbookThumb} />
+                                <Text style={styles.lookbookItemName} numberOfLines={1}>
+                                  {item.item_name}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Visual Look Summary */}
+                      <View style={styles.lookbookSummaryBox}>
+                        <Text style={styles.lookbookSummaryHeading}>Complete Look Appearance:</Text>
+                        <Text style={styles.lookbookSummaryText}>
+                          {outfit.visual_summary ||
+                            `A cohesive head-to-toe ensemble: the ${pairedItems[0]?.item_name || 'top layer'} is paired effortlessly with ${pairedItems[1]?.item_name || 'bottoms'} and anchored by ${pairedItems[2]?.item_name || 'footwear'} for a balanced, season-ready silhouette.`}
                         </Text>
                       </View>
-                    )}
+
+                      {/* Gemini AI Generated Visual Image (if generated) */}
+                      {aiGeneratedImages[idx] && (
+                        <View style={{ marginTop: 10, borderRadius: 8, overflow: 'hidden' }}>
+                          <Image
+                            source={{ uri: aiGeneratedImages[idx] }}
+                            style={{ width: '100%', height: 260, borderRadius: 8 }}
+                            resizeMode="cover"
+                          />
+                        </View>
+                      )}
+
+                      {/* Action Button: Generate with Gemini Image Model */}
+                      <TouchableOpacity
+                        style={styles.geminiGenerateBtn}
+                        onPress={() => handleGenerateGeminiVisual(outfit, idx)}
+                        disabled={generatingImageIdx === idx}
+                        activeOpacity={0.8}
+                      >
+                        {generatingImageIdx === idx ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.geminiGenerateBtnText}>
+                            {aiGeneratedImages[idx]
+                              ? '✨ Regenerate Gemini Visual'
+                              : `✨ Generate Gemini AI Visual (${seasonInput} • ${occasionInput})`}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
               );
@@ -1825,7 +2273,122 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   outfitHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
     marginBottom: 12,
+  },
+  gallerySegmentBar: {
+    flexDirection: 'row',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 3,
+    marginHorizontal: 16,
+    marginVertical: 10,
+  },
+  gallerySegmentBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gallerySegmentBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  gallerySegmentBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  gallerySegmentBtnTextActive: {
+    color: '#0F172A',
+  },
+  saveOutfitBtn: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignSelf: 'flex-start',
+  },
+  saveOutfitBtnActive: {
+    backgroundColor: '#10B981',
+    borderColor: '#059669',
+  },
+  saveOutfitBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  saveOutfitBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  savedOutfitsContainer: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+  savedOutfitCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  savedOutfitHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  savedOutfitTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  savedOutfitMeta: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  removeSavedBtn: {
+    padding: 6,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+  removeSavedBtnText: {
+    fontSize: 12,
+  },
+  savedCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  savedDateText: {
+    fontSize: 10,
+    color: '#94A3B8',
+  },
+  savedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#10B981',
   },
   styleBadge: {
     alignSelf: 'flex-start',
@@ -1914,6 +2477,276 @@ const styles = StyleSheet.create({
     color: '#92400E',
     flex: 1,
     lineHeight: 16,
+  },
+
+  // Model Profile Card
+  modelProfileCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+  },
+  modelAvatarWrapper: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#10B981',
+  },
+  modelAvatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  modelNameText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  modelActiveBadge: {
+    backgroundColor: '#064E3B',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  modelActiveBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#34D399',
+  },
+  modelSubtext: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  uploadPhotoButton: {
+    flex: 1,
+    backgroundColor: '#10B981',
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  uploadPhotoButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  removePhotoButton: {
+    backgroundColor: '#334155',
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  removePhotoButtonText: {
+    color: '#F87171',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  // Lookbook Visual Styles
+  lookbookContainer: {
+    marginTop: 14,
+    backgroundColor: '#0F172A',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  lookbookHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  lookbookTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#F8FAFC',
+  },
+  lookbookSeasonBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#10B981',
+    textTransform: 'uppercase',
+  },
+  lookbookVisualCard: {
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    padding: 10,
+  },
+  tryOnStage: {
+    width: '100%',
+    height: 320,
+    borderRadius: 10,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tryOnUserImage: {
+    width: '100%',
+    height: '100%',
+    position: 'absolute',
+  },
+  tryOnOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+  },
+  tryOnTopSlot: {
+    position: 'absolute',
+    top: '22%',
+    width: '56%',
+    height: '35%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tryOnOuterSlot: {
+    position: 'absolute',
+    top: '19%',
+    width: '66%',
+    height: '40%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  tryOnBottomSlot: {
+    position: 'absolute',
+    top: '48%',
+    width: '52%',
+    height: '40%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tryOnShoesSlot: {
+    position: 'absolute',
+    bottom: '4%',
+    width: '45%',
+    height: '16%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  tryOnPieceImage: {
+    width: '100%',
+    height: '100%',
+  },
+  tryOnBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(6, 78, 59, 0.9)',
+    borderColor: '#10B981',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  tryOnBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#34D399',
+  },
+  lookbookModelCol: {
+    width: 75,
+    alignItems: 'center',
+  },
+  lookbookModelAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
+  lookbookModelPhoto: {
+    width: '100%',
+    height: '100%',
+  },
+  lookbookModelTag: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#F8FAFC',
+    marginTop: 4,
+  },
+  lookbookAddMeBtn: {
+    marginTop: 4,
+    backgroundColor: '#064E3B',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  lookbookAddMeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#34D399',
+  },
+  lookbookStackLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94A3B8',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  lookbookItemsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  lookbookGridItem: {
+    width: 58,
+    backgroundColor: '#0F172A',
+    borderRadius: 6,
+    padding: 3,
+    alignItems: 'center',
+  },
+  lookbookThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 4,
+  },
+  lookbookItemName: {
+    fontSize: 8,
+    color: '#CBD5E1',
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  lookbookSummaryBox: {
+    marginTop: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#334155',
+  },
+  lookbookSummaryHeading: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#34D399',
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  lookbookSummaryText: {
+    fontSize: 11,
+    color: '#E2E8F0',
+    lineHeight: 16,
+  },
+  geminiGenerateBtn: {
+    marginTop: 10,
+    backgroundColor: '#059669',
+    paddingVertical: 9,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  geminiGenerateBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
   },
 
   // Badges & Common

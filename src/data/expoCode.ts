@@ -109,6 +109,7 @@ const COLUMN_WIDTH = (SCREEN_WIDTH - 48) / 2;
 const STORAGE_KEYS = {
   WARDROBE: '@aura_wardrobe_items_v1',
   API_KEY: '@aura_gemini_api_key_v1',
+  SAVED_OUTFITS: '@aura_saved_outfits_v1',
 };
 
 const DEFAULT_MODEL = 'gemini-3.8-flash';
@@ -125,6 +126,8 @@ const CATEGORIES = [
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('gallery'); // 'ingest' | 'gallery' | 'generator'
+  const [gallerySubTab, setGallerySubTab] = useState('closet'); // 'closet' | 'saved_outfits'
+  const [savedOutfits, setSavedOutfits] = useState([]);
   const [wardrobe, setWardrobe] = useState([]);
   const [loadingWardrobe, setLoadingWardrobe] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -159,9 +162,10 @@ export default function App() {
   const loadInitialData = async () => {
     try {
       setLoadingWardrobe(true);
-      const [savedWardrobe, savedKey] = await Promise.all([
+      const [savedWardrobe, savedKey, storedOutfits] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.WARDROBE),
         AsyncStorage.getItem(STORAGE_KEYS.API_KEY),
+        AsyncStorage.getItem(STORAGE_KEYS.SAVED_OUTFITS),
       ]);
 
       if (savedWardrobe) {
@@ -173,11 +177,47 @@ export default function App() {
       }
 
       if (savedKey) setGeminiApiKey(savedKey);
+      if (storedOutfits) setSavedOutfits(JSON.parse(storedOutfits));
     } catch (error) {
       console.error('Failed to load wardrobe data:', error);
     } finally {
       setLoadingWardrobe(false);
     }
+  };
+
+  const handleToggleSaveOutfit = async (outfit) => {
+    try {
+      const isSaved = savedOutfits.some(o => o.title === outfit.title && o.style === outfit.style);
+      let updated;
+      if (isSaved) {
+        updated = savedOutfits.filter(o => !(o.title === outfit.title && o.style === outfit.style));
+        Alert.alert('Removed', \`"\${outfit.title}" removed from Saved Outfits.\`);
+      } else {
+        const item = {
+          id: 'saved_' + Date.now(),
+          title: outfit.title,
+          style: outfit.style,
+          item_ids: outfit.item_ids || [],
+          occasion: occasionInput,
+          season: seasonInput,
+          weather: weatherInput,
+          layering_tip: outfit.layering_tip,
+          saved_at: new Date().toLocaleDateString(),
+        };
+        updated = [item, ...savedOutfits];
+        Alert.alert('Saved! ⭐', \`"\${outfit.title}" saved to your lookbook collection.\`);
+      }
+      setSavedOutfits(updated);
+      await AsyncStorage.setItem(STORAGE_KEYS.SAVED_OUTFITS, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Save error:', e);
+    }
+  };
+
+  const handleRemoveSavedOutfit = async (id) => {
+    const updated = savedOutfits.filter(o => o.id !== id);
+    setSavedOutfits(updated);
+    await AsyncStorage.setItem(STORAGE_KEYS.SAVED_OUTFITS, JSON.stringify(updated));
   };
 
   const saveWardrobeToStorage = async (updatedWardrobe) => {
@@ -471,31 +511,95 @@ Return ONLY JSON matching:
 
         {activeTab === 'gallery' && (
           <View style={{ flex: 1 }}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 52, paddingHorizontal: 16 }}>
-              {CATEGORIES.map(c => (
-                <TouchableOpacity
-                  key={c.id}
-                  style={[styles.chip, selectedCategory === c.id && styles.chipActive]}
-                  onPress={() => setSelectedCategory(c.id)}
-                >
-                  <Text style={{ color: selectedCategory === c.id ? '#FFF' : '#334' }}>{c.icon} {c.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            {/* Gallery Sub-Tab Segment Switch */}
+            <View style={{ flexDirection: 'row', backgroundColor: '#E2E8F0', borderRadius: 10, margin: 12, padding: 3 }}>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: gallerySubTab === 'closet' ? '#FFF' : 'transparent' }}
+                onPress={() => setGallerySubTab('closet')}
+              >
+                <Text style={{ fontWeight: '700', fontSize: 12, color: gallerySubTab === 'closet' ? '#0F172A' : '#64748B' }}>👗 Closet ({wardrobe.length})</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: gallerySubTab === 'saved_outfits' ? '#FFF' : 'transparent' }}
+                onPress={() => setGallerySubTab('saved_outfits')}
+              >
+                <Text style={{ fontWeight: '700', fontSize: 12, color: gallerySubTab === 'saved_outfits' ? '#0F172A' : '#64748B' }}>⭐ Saved Outfits ({savedOutfits.length})</Text>
+              </TouchableOpacity>
+            </View>
 
-            <FlatList
-              data={filteredWardrobe}
-              keyExtractor={i => i.id}
-              numColumns={2}
-              contentContainerStyle={{ padding: 16 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={styles.gridCard} onPress={() => setSelectedItemDetail(item)}>
-                  <Image source={{ uri: item.image_uri }} style={{ width: '100%', height: 160, borderRadius: 8 }} />
-                  <Text style={{ fontWeight: '700', fontSize: 13, marginTop: 6 }} numberOfLines={1}>{item.item_name}</Text>
-                  <Text style={{ fontSize: 11, color: '#64748B' }}>{item.category} • {item.formality}</Text>
-                </TouchableOpacity>
-              )}
-            />
+            {gallerySubTab === 'closet' ? (
+              <>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 52, paddingHorizontal: 12 }}>
+                  {CATEGORIES.map(c => (
+                    <TouchableOpacity
+                      key={c.id}
+                      style={[styles.chip, selectedCategory === c.id && styles.chipActive]}
+                      onPress={() => setSelectedCategory(c.id)}
+                    >
+                      <Text style={{ color: selectedCategory === c.id ? '#FFF' : '#334' }}>{c.icon} {c.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <FlatList
+                  data={filteredWardrobe}
+                  keyExtractor={i => i.id}
+                  numColumns={2}
+                  contentContainerStyle={{ padding: 12 }}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity style={styles.gridCard} onPress={() => setSelectedItemDetail(item)}>
+                      <Image source={{ uri: item.image_uri }} style={{ width: '100%', height: 160, borderRadius: 8 }} />
+                      <Text style={{ fontWeight: '700', fontSize: 13, marginTop: 6 }} numberOfLines={1}>{item.item_name}</Text>
+                      <Text style={{ fontSize: 11, color: '#64748B' }}>{item.category} • {item.formality}</Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </>
+            ) : (
+              /* SAVED OUTFITS LIST */
+              <FlatList
+                data={savedOutfits}
+                keyExtractor={i => i.id}
+                contentContainerStyle={{ padding: 12 }}
+                ListEmptyComponent={
+                  <View style={{ padding: 30, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 32, marginBottom: 8 }}>⭐</Text>
+                    <Text style={{ fontWeight: '700', fontSize: 16, marginBottom: 4 }}>No Saved Outfits Yet</Text>
+                    <Text style={{ color: '#64748B', textAlign: 'center', fontSize: 12, marginBottom: 12 }}>
+                      Generate AI outfit ideas in the Stylist tab and tap "Save Outfit" to build your lookbook!
+                    </Text>
+                    <TouchableOpacity style={[styles.primaryButton, { backgroundColor: '#10B981' }]} onPress={() => setActiveTab('generator')}>
+                      <Text style={styles.primaryButtonText}>Go to Outfit Generator</Text>
+                    </TouchableOpacity>
+                  </View>
+                }
+                renderItem={({ item: saved }) => (
+                  <View style={[styles.card, { marginBottom: 12 }]}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <Text style={{ color: '#059669', fontWeight: '800', fontSize: 11 }}>{saved.style.toUpperCase()}</Text>
+                      <TouchableOpacity onPress={() => handleRemoveSavedOutfit(saved.id)}>
+                        <Text style={{ color: '#EF4444', fontSize: 12 }}>Remove ✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ fontSize: 16, fontWeight: '700', marginBottom: 8 }}>{saved.title}</Text>
+                    <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
+                      {(saved.item_ids || []).map(id => wardrobeMap[id]).filter(Boolean).map((piece, i) => (
+                        <View key={i} style={{ width: 60 }}>
+                          <Image source={{ uri: piece.image_uri }} style={{ width: 60, height: 60, borderRadius: 6 }} />
+                          <Text style={{ fontSize: 9, textAlign: 'center', marginTop: 2 }} numberOfLines={1}>{piece.item_name}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    {saved.layering_tip && (
+                      <Text style={{ fontSize: 11, color: '#92400E', backgroundColor: '#FEF3C7', padding: 6, borderRadius: 6 }}>
+                        💡 Tip: {saved.layering_tip}
+                      </Text>
+                    )}
+                    <Text style={{ fontSize: 10, color: '#94A3B8', marginTop: 6 }}>Saved on {saved.saved_at}</Text>
+                  </View>
+                )}
+              />
+            )}
           </View>
         )}
 
@@ -537,21 +641,48 @@ Return ONLY JSON matching:
               </View>
             )}
 
-            {outfitResults && outfitResults.map((outfit, idx) => (
-              <View key={idx} style={[styles.card, { marginTop: 12 }]}>
-                <Text style={{ color: '#059669', fontWeight: '800', fontSize: 12 }}>{outfit.style.toUpperCase()}</Text>
-                <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8 }}>{outfit.title}</Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginVertical: 8 }}>
-                  {(outfit.item_ids || []).map(id => wardrobeMap[id]).filter(Boolean).map((item, i) => (
-                    <View key={i} style={{ width: 70 }}>
-                      <Image source={{ uri: item.image_uri }} style={{ width: 70, height: 70, borderRadius: 8 }} />
-                      <Text style={{ fontSize: 10, textAlign: 'center', marginTop: 4 }} numberOfLines={1}>{item.item_name}</Text>
-                    </View>
-                  ))}
+            {outfitResults && outfitResults.map((outfit, idx) => {
+              const isSaved = savedOutfits.some(o => o.title === outfit.title && o.style === outfit.style);
+              return (
+                <View key={idx} style={[styles.card, { marginTop: 12 }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: '#059669', fontWeight: '800', fontSize: 12 }}>{outfit.style.toUpperCase()}</Text>
+                    <TouchableOpacity
+                      style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: isSaved ? '#10B981' : '#F1F5F9' }}
+                      onPress={() => handleToggleSaveOutfit(outfit)}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: isSaved ? '#FFF' : '#334155' }}>
+                        {isSaved ? '⭐ Saved' : '☆ Save Outfit'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ fontSize: 18, fontWeight: '700', marginBottom: 8, marginTop: 4 }}>{outfit.title}</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginVertical: 8 }}>
+                    {(outfit.item_ids || []).map(id => wardrobeMap[id]).filter(Boolean).map((item, i) => (
+                      <View key={i} style={{ width: 70 }}>
+                        <Image source={{ uri: item.image_uri }} style={{ width: 70, height: 70, borderRadius: 8 }} />
+                        <Text style={{ fontSize: 10, textAlign: 'center', marginTop: 4 }} numberOfLines={1}>{item.item_name}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  {outfit.layering_tip && (
+                    <Text style={{ fontSize: 11, color: '#92400E', backgroundColor: '#FEF3C7', padding: 6, borderRadius: 6, marginVertical: 4 }}>
+                      💡 Tip: {outfit.layering_tip}
+                    </Text>
+                  )}
+                  
+                  {/* Lookbook Visual of Complete Assembled Outfit */}
+                  <View style={{ marginTop: 10, padding: 10, backgroundColor: '#0F172A', borderRadius: 10 }}>
+                    <Text style={{ color: '#34D399', fontSize: 11, fontWeight: '800', marginBottom: 4 }}>
+                      ✨ LOOKBOOK: ASSEMBLED ON YOU
+                    </Text>
+                    <Text style={{ color: '#E2E8F0', fontSize: 11, lineHeight: 16 }}>
+                      {outfit.visual_summary || \`Head-to-toe ensemble: styled pieces layered cleanly with balanced proportions for \${seasonInput}.\`}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={{ fontSize: 13, color: '#475569', lineHeight: 18 }}>{outfit.stylist_rationale}</Text>
-              </View>
-            ))}
+              );
+            })}
           </ScrollView>
         )}
       </View>

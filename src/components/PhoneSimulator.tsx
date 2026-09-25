@@ -21,10 +21,15 @@ import {
   ExternalLink,
   ChevronRight,
   ShieldCheck,
-  Settings
+  Settings,
+  User,
+  Bookmark,
+  BookmarkCheck,
+  Heart
 } from 'lucide-react';
-import { WardrobeItem, OutfitRecommendation, ClothingCategory, FormalityLevel } from '../types';
+import { WardrobeItem, OutfitRecommendation, ClothingCategory, FormalityLevel, SavedOutfit } from '../types';
 import { INITIAL_WARDROBE_SEED, SAMPLE_PRESETS_TO_TEST } from '../data/seedWardrobe';
+import { OutfitLookbookVisual } from './OutfitLookbookVisual';
 
 interface PhoneSimulatorProps {
   onOpenCodeViewer?: () => void;
@@ -79,16 +84,99 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
   const [outfitResults, setOutfitResults] = useState<OutfitRecommendation[] | null>(null);
   const [generatorError, setGeneratorError] = useState<string | null>(null);
 
+  // User styling model / photo of me state
+  const [userPhoto, setUserPhoto] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('aura_user_styling_photo');
+    } catch {
+      return null;
+    }
+  });
+  const [modelPersona, setModelPersona] = useState<string>('Alex (Modern Classic)');
+
+  // Saved Outfits state (persisted to localStorage in web, AsyncStorage in native)
+  const [savedOutfits, setSavedOutfits] = useState<SavedOutfit[]>(() => {
+    try {
+      const stored = localStorage.getItem('aura_saved_outfits');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // Gallery Sub-Tab: 'closet' vs 'saved_outfits'
+  const [galleryTab, setGalleryTab] = useState<'closet' | 'saved_outfits'>('closet');
+  const [saveToast, setSaveToast] = useState<string | null>(null);
+
   // Settings / Info modal
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // File input refs
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const userPhotoInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync wardrobe to local storage
+  // Sync saved outfits to storage safely
   useEffect(() => {
-    localStorage.setItem('aura_wardrobe_items', JSON.stringify(wardrobe));
+    try {
+      localStorage.setItem('aura_saved_outfits', JSON.stringify(savedOutfits));
+    } catch {
+      // Storage quota exceeded; keep in memory
+    }
+  }, [savedOutfits]);
+
+  // Handle saving / unsaving an outfit
+  const handleToggleSaveOutfit = (outfit: OutfitRecommendation) => {
+    setSavedOutfits((prev) => {
+      const isAlreadySaved = prev.some((o) => o.title === outfit.title && o.style === outfit.style);
+      if (isAlreadySaved) {
+        setSaveToast(`Removed "${outfit.title}" from saved outfits`);
+        setTimeout(() => setSaveToast(null), 2500);
+        return prev.filter((o) => !(o.title === outfit.title && o.style === outfit.style));
+      } else {
+        const newSaved: SavedOutfit = {
+          id: `saved_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          title: outfit.title,
+          style: outfit.style,
+          item_ids: outfit.item_ids || [],
+          occasion: occasionInput,
+          season: seasonInput,
+          weather: weatherInput,
+          layering_tip: outfit.layering_tip,
+          visual_summary: outfit.visual_summary,
+          saved_at: new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+        };
+        setSaveToast(`Saved "${outfit.title}" to Gallery!`);
+        setTimeout(() => setSaveToast(null), 2500);
+        return [newSaved, ...prev];
+      }
+    });
+  };
+
+  const handleRemoveSavedOutfit = (outfitId: string) => {
+    setSavedOutfits((prev) => prev.filter((o) => o.id !== outfitId));
+  };
+
+  // Sync user photo to storage safely
+  useEffect(() => {
+    try {
+      if (userPhoto) {
+        localStorage.setItem('aura_user_styling_photo', userPhoto);
+      } else {
+        localStorage.removeItem('aura_user_styling_photo');
+      }
+    } catch {
+      // Storage quota exceeded for large base64; keep in memory
+    }
+  }, [userPhoto]);
+
+  // Sync wardrobe to local storage safely
+  useEffect(() => {
+    try {
+      localStorage.setItem('aura_wardrobe_items', JSON.stringify(wardrobe));
+    } catch {
+      // Storage quota exceeded; keep in memory
+    }
   }, [wardrobe]);
 
   // Handle image selection (file upload or camera)
@@ -110,6 +198,18 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
 
       // Trigger Gemini Analysis
       analyzeClothing(base64Data, file.type || 'image/jpeg', dataUrl);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Handle user's personal selfie/photo upload for lookbook
+  const handleUserPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setUserPhoto(reader.result as string);
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -289,22 +389,25 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
         style: 'Casual',
         title: `Effortless ${seasonInput} Neutral`,
         item_ids: [top1?.id, bot1?.id, shoe1?.id].filter(Boolean),
-        stylist_rationale: `Pairing the ${top1?.primary_color || 'relaxed'} ${top1?.item_name} with ${bot1?.item_name} creates a grounded silhouette ideal for ${weatherInput} during ${seasonInput}. The footwear keeps the energy approachable yet intentional.`,
+        stylist_rationale: `Pairing the ${top1?.primary_color || 'relaxed'} ${top1?.item_name || 'top'} with ${bot1?.item_name || 'bottoms'} creates a grounded silhouette ideal for ${weatherInput} during ${seasonInput}. The footwear keeps the energy approachable yet intentional.`,
         layering_tip: 'Roll up cuffs slightly to expose ankles for casual proportional balance.',
+        visual_summary: `Relaxed ${top1?.item_name || 'top'} paired cleanly with ${bot1?.item_name || 'trousers'} and ${shoe1?.item_name || 'footwear'} for an effortless ${seasonInput} ensemble.`,
       },
       {
         style: 'Elevated',
         title: `Architectural ${seasonInput} Chic`,
-        item_ids: [outer1?.id, top1?.id, bot1?.id, shoe1?.id].filter(Boolean),
+        item_ids: [outer1?.id || top1?.id, bot1?.id, shoe1?.id].filter(Boolean),
         stylist_rationale: `Adding structured outerwear transforms the foundation into a sharp ensemble tailored for a ${seasonInput} ${occasionInput}. Clean lines and tonal contrast deliver subtle sophistication.`,
         layering_tip: 'Drape the outerwear over shoulders or push sleeves up for effortless authority.',
+        visual_summary: `A structured ${outer1?.item_name || 'blazer'} layered over ${bot1?.item_name || 'trousers'} for a polished, elegant ${occasionInput} appearance.`,
       },
       {
         style: 'Bold/Statement',
         title: `High-Contrast ${seasonInput} Direction`,
         item_ids: [top1?.id, bot1?.id, shoe1?.id].filter(Boolean),
-        stylist_rationale: `Plays with silhouette tension and bold character. The mix of ${bot1?.primary_color} with ${top1?.primary_color} creates immediate visual intrigue that stands out at ${occasionInput} this ${seasonInput}.`,
+        stylist_rationale: `Plays with silhouette tension and bold character. The mix of ${bot1?.primary_color || 'dark tone'} with ${top1?.primary_color || 'statement color'} creates immediate visual intrigue that stands out at ${occasionInput} this ${seasonInput}.`,
         layering_tip: 'Add a distinctive watch or accent chain to anchor the focal point.',
+        visual_summary: `High-contrast pairing featuring ${top1?.item_name || 'statement top'} and ${bot1?.item_name || 'bottoms'} that commands attention for ${occasionInput}.`,
       },
     ];
 
@@ -349,6 +452,13 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
         capture="environment"
         className="hidden"
         onChange={handleFileChange}
+      />
+      <input
+        type="file"
+        ref={userPhotoInputRef}
+        accept="image/*"
+        className="hidden"
+        onChange={handleUserPhotoChange}
       />
 
       {/* Phone Hardware Shell */}
@@ -407,6 +517,25 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
 
           {/* Screen Content Scroll Area */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4">
+
+            {/* Notification Toast for Saved Outfit */}
+            {saveToast && (
+              <div className="sticky top-0 z-40 px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-lg flex items-center justify-between">
+                <div className="flex items-center gap-1.5 truncate">
+                  <Check className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{saveToast}</span>
+                </div>
+                <button
+                  onClick={() => {
+                    setActiveTab('gallery');
+                    setGalleryTab('saved_outfits');
+                  }}
+                  className="underline text-[10px] hover:text-emerald-100 ml-2 shrink-0 font-extrabold"
+                >
+                  View Saved Looks →
+                </button>
+              </div>
+            )}
             
             {/* ============================================================= */}
             {/* SCREEN 1: ADD CLOTHES (INGESTION) */}
@@ -614,133 +743,302 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
             {/* ============================================================= */}
             {activeTab === 'gallery' && (
               <div className="space-y-3">
-                {/* Search Bar */}
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search closet (e.g. linen, navy)..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-3 pr-8 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs placeholder:text-slate-400 outline-hidden focus:ring-1 focus:ring-emerald-500"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
-                    >
-                      ✕
-                    </button>
-                  )}
+                {/* Segmented Switch: Closet Pieces vs Saved Outfits */}
+                <div className="flex bg-slate-200/80 dark:bg-slate-800 p-1 rounded-xl">
+                  <button
+                    onClick={() => setGalleryTab('closet')}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                      galleryTab === 'closet'
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <Grid className="w-3.5 h-3.5" />
+                    <span>Closet ({wardrobe.length})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setGalleryTab('saved_outfits')}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                      galleryTab === 'saved_outfits'
+                        ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <BookmarkCheck className="w-3.5 h-3.5" />
+                    <span>Saved Outfits ({savedOutfits.length})</span>
+                  </button>
                 </div>
 
-                {/* Category Horizontal Filter Bar */}
-                <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  {CATEGORIES.map((cat) => {
-                    const isSelected = selectedCategory === cat.id;
-                    const count =
-                      cat.id === 'all'
-                        ? wardrobe.length
-                        : wardrobe.filter((i) => i.category === cat.id).length;
-
-                    return (
-                      <button
-                        key={cat.id}
-                        onClick={() => setSelectedCategory(cat.id)}
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition ${
-                          isSelected
-                            ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs'
-                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                        }`}
-                      >
-                        <span>{cat.icon}</span>
-                        <span>{cat.label}</span>
-                        <span
-                          className={`text-[10px] px-1 rounded-full font-mono ${
-                            isSelected
-                              ? 'bg-slate-700 dark:bg-slate-200 text-slate-200 dark:text-slate-800'
-                              : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
-                          }`}
+                {/* SUB-VIEW A: CLOSET PIECES */}
+                {galleryTab === 'closet' && (
+                  <>
+                    {/* Search Bar */}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Search closet (e.g. linen, navy)..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-3 pr-8 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs placeholder:text-slate-400 outline-hidden focus:ring-1 focus:ring-emerald-500"
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
                         >
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                          ✕
+                        </button>
+                      )}
+                    </div>
 
-                {/* Items Grid */}
-                {filteredWardrobe.length === 0 ? (
-                  <div className="py-12 px-4 text-center bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
-                    <span className="text-3xl mb-2 block">👗</span>
-                    <h3 className="font-bold text-sm text-slate-900 dark:text-white mb-1">
-                      No Items in {selectedCategory.toUpperCase()}
-                    </h3>
-                    <p className="text-xs text-slate-500 mb-4">
-                      Add clothes with the camera or pick from the preset samples!
-                    </p>
-                    <button
-                      onClick={() => setActiveTab('ingest')}
-                      className="px-3.5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-xs hover:bg-emerald-500"
-                    >
-                      + Add New Clothing
-                    </button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {filteredWardrobe.map((item) => (
-                      <div
-                        key={item.id}
-                        onClick={() => setSelectedItemDetail(item)}
-                        className="group bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700/80 overflow-hidden shadow-xs hover:shadow-md transition cursor-pointer flex flex-col"
-                      >
-                        <div className="relative aspect-square bg-slate-100 dark:bg-slate-900 overflow-hidden">
-                          <img
-                            src={item.image_uri}
-                            alt={item.item_name}
-                            className="w-full h-full object-cover group-hover:scale-104 transition duration-300"
-                          />
-                          <span
-                            className={`absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider backdrop-blur-xs ${
-                              item.formality === 'formal'
-                                ? 'bg-purple-500/90 text-white'
-                                : item.formality === 'business'
-                                ? 'bg-blue-600/90 text-white'
-                                : 'bg-emerald-600/90 text-white'
+                    {/* Category Horizontal Filter Bar */}
+                    <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                      {CATEGORIES.map((cat) => {
+                        const isSelected = selectedCategory === cat.id;
+                        const count =
+                          cat.id === 'all'
+                            ? wardrobe.length
+                            : wardrobe.filter((i) => i.category === cat.id).length;
+
+                        return (
+                          <button
+                            key={cat.id}
+                            onClick={() => setSelectedCategory(cat.id)}
+                            className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition ${
+                              isSelected
+                                ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs'
+                                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                             }`}
                           >
-                            {item.formality}
+                            <span>{cat.icon}</span>
+                            <span>{cat.label}</span>
+                            <span
+                              className={`text-[10px] px-1 rounded-full font-mono ${
+                                isSelected
+                                  ? 'bg-slate-700 dark:bg-slate-200 text-slate-200 dark:text-slate-800'
+                                  : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
+                              }`}
+                            >
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Items Grid */}
+                    {filteredWardrobe.length === 0 ? (
+                      <div className="py-12 px-4 text-center bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
+                        <span className="text-3xl mb-2 block">👗</span>
+                        <h3 className="font-bold text-sm text-slate-900 dark:text-white mb-1">
+                          No Items in {selectedCategory.toUpperCase()}
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-4">
+                          Add clothes with the camera or pick from the preset samples!
+                        </p>
+                        <button
+                          onClick={() => setActiveTab('ingest')}
+                          className="px-3.5 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-xs hover:bg-emerald-500"
+                        >
+                          + Add New Clothing
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2.5">
+                        {filteredWardrobe.map((item) => (
+                          <div
+                            key={item.id}
+                            onClick={() => setSelectedItemDetail(item)}
+                            className="group bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700/80 overflow-hidden shadow-xs hover:shadow-md transition cursor-pointer flex flex-col"
+                          >
+                            <div className="relative aspect-square bg-slate-100 dark:bg-slate-900 overflow-hidden">
+                              <img
+                                src={item.image_uri}
+                                alt={item.item_name}
+                                className="w-full h-full object-cover group-hover:scale-104 transition duration-300"
+                              />
+                              <span
+                                className={`absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider backdrop-blur-xs ${
+                                  item.formality === 'formal'
+                                    ? 'bg-purple-500/90 text-white'
+                                    : item.formality === 'business'
+                                    ? 'bg-blue-600/90 text-white'
+                                    : 'bg-emerald-600/90 text-white'
+                                }`}
+                              >
+                                {item.formality}
+                              </span>
+                            </div>
+
+                            <div className="p-2.5 flex-1 flex flex-col justify-between">
+                              <div>
+                                <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">
+                                  {item.item_name}
+                                </h4>
+                                <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-0.5">
+                                  <span className="uppercase font-semibold tracking-wider">
+                                    {item.category}
+                                  </span>
+                                  <span>•</span>
+                                  <span className="truncate">{item.primary_color}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Reset button footer */}
+                    <div className="pt-2 flex justify-between items-center text-[11px] text-slate-400">
+                      <span>{wardrobe.length} Total Closet Pieces</span>
+                      <button
+                        onClick={handleResetToSeed}
+                        className="hover:text-slate-600 dark:hover:text-slate-300 underline"
+                      >
+                        Reset Starter Items
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* SUB-VIEW B: SAVED OUTFITS */}
+                {galleryTab === 'saved_outfits' && (
+                  <div className="space-y-3">
+                    {savedOutfits.length === 0 ? (
+                      <div className="py-12 px-4 text-center bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
+                        <div className="w-12 h-12 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mx-auto mb-3">
+                          <BookmarkCheck className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-bold text-sm text-slate-900 dark:text-white mb-1">
+                          No Saved Outfits Yet
+                        </h3>
+                        <p className="text-xs text-slate-500 mb-4 max-w-xs mx-auto leading-relaxed">
+                          Generate AI outfit combinations in the Stylist tab and tap <strong className="text-emerald-600 font-semibold">Save Outfit</strong> to curate your personal lookbook!
+                        </p>
+                        <button
+                          onClick={() => setActiveTab('generator')}
+                          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-xs transition"
+                        >
+                          ✨ Generate AI Outfits
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3.5">
+                        <div className="flex items-center justify-between px-1">
+                          <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                            My Saved Looks ({savedOutfits.length})
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            Persisted in storage
                           </span>
                         </div>
 
-                        <div className="p-2.5 flex-1 flex flex-col justify-between">
-                          <div>
-                            <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">
-                              {item.item_name}
-                            </h4>
-                            <div className="flex items-center gap-1 text-[10px] text-slate-500 mt-0.5">
-                              <span className="uppercase font-semibold tracking-wider">
-                                {item.category}
-                              </span>
-                              <span>•</span>
-                              <span className="truncate">{item.primary_color}</span>
+                        {savedOutfits.map((saved) => {
+                          const pairedItems = (saved.item_ids || [])
+                            .map((id) => wardrobeMap[id])
+                            .filter(Boolean);
+
+                          const badgeTheme =
+                            saved.style === 'Elevated'
+                              ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              : saved.style === 'Bold/Statement'
+                              ? 'bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-300'
+                              : 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300';
+
+                          return (
+                            <div
+                              key={saved.id}
+                              className="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-xs space-y-2.5"
+                            >
+                              {/* Header */}
+                              <div className="flex items-start justify-between">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase ${badgeTheme}`}>
+                                      {saved.style}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">
+                                      {saved.occasion || 'Everyday'} • {saved.season || 'Current'}
+                                    </span>
+                                  </div>
+                                  <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                                    {saved.title}
+                                  </h3>
+                                </div>
+
+                                <button
+                                  onClick={() => handleRemoveSavedOutfit(saved.id)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition"
+                                  title="Remove from saved outfits"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+
+                              {/* Paired Pieces */}
+                              <div className="flex gap-2 overflow-x-auto py-1 scrollbar-none">
+                                {pairedItems.map((item, iIdx) => (
+                                  <div
+                                    key={item.id || iIdx}
+                                    className="w-16 shrink-0 bg-slate-50 dark:bg-slate-900 rounded-lg p-1 border border-slate-200 dark:border-slate-700 text-center"
+                                  >
+                                    <img
+                                      src={item.image_uri}
+                                      alt={item.item_name}
+                                      className="w-full aspect-square object-cover rounded-md mb-1"
+                                    />
+                                    <span className="text-[9px] font-bold text-slate-800 dark:text-slate-200 block truncate">
+                                      {item.item_name}
+                                    </span>
+                                    <span className="text-[8px] text-slate-400 uppercase">
+                                      {item.category}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Styling Tip */}
+                              {saved.layering_tip && (
+                                <div className="text-xs leading-relaxed bg-amber-50 dark:bg-amber-950/30 p-2.5 rounded-xl border border-amber-200/80 dark:border-amber-800/60 flex items-start gap-1.5 text-amber-800 dark:text-amber-300">
+                                  <span className="text-xs">💡</span>
+                                  <span>
+                                    <strong className="font-bold text-amber-900 dark:text-amber-200">Tip:</strong> {saved.layering_tip}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Interactive Lookbook Component */}
+                              <OutfitLookbookVisual
+                                outfit={{
+                                  title: saved.title,
+                                  style: saved.style,
+                                  item_ids: saved.item_ids,
+                                  stylist_rationale: '',
+                                  layering_tip: saved.layering_tip,
+                                  visual_summary: saved.visual_summary,
+                                }}
+                                pairedItems={pairedItems}
+                                userPhoto={userPhoto}
+                                modelPersona={modelPersona}
+                                season={saved.season || seasonInput}
+                                occasion={saved.occasion || occasionInput}
+                                weather={saved.weather || weatherInput}
+                                onOpenPhotoUpload={() => userPhotoInputRef.current?.click()}
+                              />
+
+                              <div className="pt-1 flex items-center justify-between text-[10px] text-slate-400">
+                                <span>Saved on {saved.saved_at}</span>
+                                <span className="text-emerald-500 font-medium">✓ In Lookbook</span>
+                              </div>
                             </div>
-                          </div>
-                        </div>
+                          );
+                        })}
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
-
-                {/* Reset button footer */}
-                <div className="pt-2 flex justify-between items-center text-[11px] text-slate-400">
-                  <span>{wardrobe.length} Total Closet Pieces</span>
-                  <button
-                    onClick={handleResetToSeed}
-                    className="hover:text-slate-600 dark:hover:text-slate-300 underline"
-                  >
-                    Reset Starter Items
-                  </button>
-                </div>
               </div>
             )}
 
@@ -752,8 +1050,65 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
                 <div>
                   <h2 className="text-lg font-bold text-slate-900 dark:text-white">AI Outfit Stylist</h2>
                   <p className="text-xs text-slate-500">
-                    Input your destination event & weather. Gemini curates 3 tailored looks using only your real clothes.
+                    Input your destination event & weather. Gemini curates 3 tailored looks and visualizes the complete ensemble together on you.
                   </p>
+                </div>
+
+                {/* Styling Avatar / My Photo Profile Card */}
+                <div className="bg-slate-900 text-white p-3 rounded-2xl border border-slate-800 shadow-xs flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="relative w-11 h-11 rounded-full overflow-hidden bg-slate-800 ring-2 ring-emerald-500/50 shrink-0">
+                      {userPhoto ? (
+                        <img src={userPhoto} alt="Your profile" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center bg-slate-800 text-emerald-400">
+                          <User className="w-6 h-6" />
+                        </div>
+                      )}
+                      <button
+                        onClick={() => userPhotoInputRef.current?.click()}
+                        className="absolute inset-0 bg-slate-950/60 opacity-0 hover:opacity-100 transition flex items-center justify-center text-white"
+                        title="Change Photo"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-white">
+                          {userPhoto ? 'Styling Model: You' : `Model: ${modelPersona}`}
+                        </span>
+                        {userPhoto && (
+                          <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full font-bold">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-400">
+                        {userPhoto ? 'Your photo is used in lookbook visuals' : 'Tap to upload a photo of yourself'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => userPhotoInputRef.current?.click()}
+                      className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold transition flex items-center gap-1"
+                    >
+                      <Camera className="w-3 h-3" />
+                      <span>{userPhoto ? 'Change Photo' : 'Upload Me'}</span>
+                    </button>
+                    {userPhoto && (
+                      <button
+                        onClick={() => setUserPhoto(null)}
+                        className="p-1 hover:text-rose-400 text-slate-500 text-[10px]"
+                        title="Remove photo"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Generator Input Form Card */}
@@ -931,10 +1286,40 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
                           className="bg-white dark:bg-slate-800 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-xs space-y-2.5"
                         >
                           <div className="flex items-center justify-between">
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase ${badgeTheme}`}>
-                              {outfit.style}
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-medium">{seasonInput} • Look {idx + 1} of 3</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase ${badgeTheme}`}>
+                                {outfit.style}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-medium">{seasonInput} • Look {idx + 1} of 3</span>
+                            </div>
+
+                            {/* Save Outfit Button */}
+                            {(() => {
+                              const isSaved = savedOutfits.some((o) => o.title === outfit.title && o.style === outfit.style);
+                              return (
+                                <button
+                                  onClick={() => handleToggleSaveOutfit(outfit)}
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition flex items-center gap-1 shadow-2xs active:scale-95 ${
+                                    isSaved
+                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                      : 'bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600'
+                                  }`}
+                                  title={isSaved ? 'Remove from Saved Outfits' : 'Save to Gallery Saved Outfits'}
+                                >
+                                  {isSaved ? (
+                                    <>
+                                      <BookmarkCheck className="w-3.5 h-3.5 text-white" />
+                                      <span>Saved</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Bookmark className="w-3.5 h-3.5 text-slate-500 dark:text-slate-300" />
+                                      <span>Save Outfit</span>
+                                    </>
+                                  )}
+                                </button>
+                              );
+                            })()}
                           </div>
 
                           <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
@@ -963,22 +1348,27 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
                             ))}
                           </div>
 
-                          {/* Stylist Rationale */}
-                          <div className="pt-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                            <span className="font-bold text-slate-800 dark:text-slate-200 block text-[11px] mb-0.5">
-                              Stylist Note:
-                            </span>
-                            {outfit.stylist_rationale}
+                          {/* Styling Tip */}
+                          {outfit.layering_tip && (
+                            <div className="text-xs leading-relaxed bg-amber-50 dark:bg-amber-950/30 p-2.5 rounded-xl border border-amber-200/80 dark:border-amber-800/60 flex items-start gap-1.5 text-amber-800 dark:text-amber-300">
+                              <span className="text-xs">💡</span>
+                              <span>
+                                <strong className="font-bold text-amber-900 dark:text-amber-200">Tip:</strong> {outfit.layering_tip}
+                              </span>
+                            </div>
+                          )}
 
-                            {outfit.layering_tip && (
-                              <div className="mt-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-800 flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-400">
-                                <span>💡</span>
-                                <span>
-                                  <strong>Tip:</strong> {outfit.layering_tip}
-                                </span>
-                              </div>
-                            )}
-                          </div>
+                          {/* Lookbook Visual of Complete Outfit Assembled On the Person */}
+                          <OutfitLookbookVisual
+                            outfit={outfit}
+                            pairedItems={pairedItems}
+                            userPhoto={userPhoto}
+                            modelPersona={modelPersona}
+                            season={seasonInput}
+                            occasion={occasionInput}
+                            weather={weatherInput}
+                            onOpenPhotoUpload={() => userPhotoInputRef.current?.click()}
+                          />
                         </div>
                       );
                     })}

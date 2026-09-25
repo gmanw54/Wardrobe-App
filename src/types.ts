@@ -17,6 +17,22 @@ export interface OutfitRecommendation {
   item_ids: string[];
   stylist_rationale: string;
   layering_tip?: string;
+  lookbook_image_url?: string;
+  visual_summary?: string;
+  model_persona?: string;
+}
+
+export interface SavedOutfit {
+  id: string;
+  title: string;
+  style: string;
+  item_ids: string[];
+  occasion?: string;
+  season?: string;
+  weather?: string;
+  layering_tip?: string;
+  visual_summary?: string;
+  saved_at: string;
 }
 
 export interface AnalysisResult {
