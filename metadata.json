@@ -1,0 +1,7 @@
+{
+  "name": "AuraWardrobe - Expo Mobile Wardrobe & AI Stylist",
+  "description": "Cross-platform mobile wardrobe and styling application built for React Native and Expo with Gemini AI vision and personalized outfit generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
