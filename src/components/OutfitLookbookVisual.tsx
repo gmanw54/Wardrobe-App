@@ -6,10 +6,8 @@ import {
   User,
   Layers,
   Camera,
-  Maximize2,
   RefreshCw,
   AlertCircle,
-  X,
   CheckCircle2,
   Shirt
 } from 'lucide-react';
@@ -37,7 +35,6 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
   onOpenPhotoUpload,
 }) => {
   const [viewMode, setViewMode] = useState<'ai_visual' | 'flatlay' | 'pieces'>('ai_visual');
-  const [isZoomed, setIsZoomed] = useState(false);
   const [isComparingWithOriginal, setIsComparingWithOriginal] = useState<boolean>(false);
 
   // Gemini AI Generated Image state
@@ -118,6 +115,7 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
             image_uri: i.image_uri,
           })),
           visualSummary: outfit.visual_summary,
+          userPhoto: userPhoto || undefined,
           userPhotoBase64,
           userPhotoMimeType,
         }),
@@ -134,9 +132,20 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
       setGeminiImage(data.imageUrl);
       setViewMode('ai_visual');
       try {
+        // Prune older cached lookbook images if localStorage is getting full
+        const oldLookKeys: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('aura_gemini_look_') && k !== cacheKey) {
+            oldLookKeys.push(k);
+          }
+        }
+        if (oldLookKeys.length >= 4) {
+          oldLookKeys.slice(0, oldLookKeys.length - 2).forEach((k) => localStorage.removeItem(k));
+        }
         localStorage.setItem(cacheKey, data.imageUrl);
       } catch {
-        // Storage quota
+        // Storage quota exceeded; image remains in memory
       }
     } catch (err: any) {
       console.warn('AI Visual generation status:', err.message);
@@ -149,22 +158,22 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
   return (
     <div className={`mt-3 rounded-2xl overflow-hidden border ${styleTheme.border} bg-slate-900 shadow-lg`}>
       {/* Top Header Bar */}
-      <div className="px-3 py-2 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Sparkles className={`w-3.5 h-3.5 ${styleTheme.accent}`} />
+      <div className="px-3 py-2 bg-slate-950/90 border-b border-slate-800 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Sparkles className={`w-3.5 h-3.5 shrink-0 ${styleTheme.accent}`} />
           <span className="text-[11px] font-bold text-slate-200 truncate">
             {userPhoto ? 'Photorealistic Fit on You' : `Modeled on ${modelPersona}`}
           </span>
         </div>
 
         {/* View Mode Tabs */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => setViewMode('ai_visual')}
-            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition flex items-center gap-1 cursor-pointer ${
               viewMode === 'ai_visual'
                 ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-slate-800 text-slate-400 hover:text-white'
+                : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
             <Sparkles className="w-3 h-3 text-amber-300" />
@@ -173,10 +182,10 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
 
           <button
             onClick={() => setViewMode('flatlay')}
-            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition flex items-center gap-1 cursor-pointer ${
               viewMode === 'flatlay'
                 ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-slate-800 text-slate-400 hover:text-white'
+                : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
             <Layers className="w-3 h-3" />
@@ -185,10 +194,10 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
 
           <button
             onClick={() => setViewMode('pieces')}
-            className={`px-2 py-0.5 rounded-md text-[10px] font-semibold transition flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-md text-[10px] font-semibold transition flex items-center gap-1 cursor-pointer ${
               viewMode === 'pieces'
                 ? 'bg-emerald-600 text-white shadow-xs'
-                : 'bg-slate-800 text-slate-400 hover:text-white'
+                : 'bg-slate-800/80 text-slate-400 hover:text-white hover:bg-slate-800'
             }`}
           >
             <Shirt className="w-3 h-3" />
@@ -203,19 +212,21 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
       {viewMode === 'ai_visual' && (
         <div className="relative p-3 bg-slate-950 flex flex-col items-center">
           {/* Subheader info badges & actions */}
-          <div className="w-full flex items-center justify-between mb-2">
-            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase ${styleTheme.bgTag}`}>
-              {season} • {occasion} • {outfit.style}
-            </span>
+          <div className="w-full flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider uppercase truncate ${styleTheme.bgTag}`}>
+                {season} • {occasion} • {outfit.style}
+              </span>
+            </div>
 
-            <div className="flex items-center gap-1.5 text-[10px]">
+            <div className="flex items-center gap-1.5 text-[10px] shrink-0">
               {geminiImage && userPhoto && (
                 <button
                   onMouseDown={() => setIsComparingWithOriginal(true)}
                   onMouseUp={() => setIsComparingWithOriginal(false)}
                   onTouchStart={() => setIsComparingWithOriginal(true)}
                   onTouchEnd={() => setIsComparingWithOriginal(false)}
-                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[9px] font-bold transition flex items-center gap-1 active:bg-emerald-700 active:text-white select-none"
+                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-md text-[9px] font-bold transition flex items-center gap-1 active:bg-emerald-700 active:text-white select-none cursor-pointer"
                   title="Press and hold to see your uploaded photo before the outfit transformation"
                 >
                   {isComparingWithOriginal ? <EyeOff className="w-3 h-3 text-amber-400" /> : <Eye className="w-3 h-3" />}
@@ -223,19 +234,9 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
                 </button>
               )}
 
-              {geminiImage && (
-                <button
-                  onClick={() => setIsZoomed(!isZoomed)}
-                  className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
-                  title="Toggle Zoom"
-                >
-                  <Maximize2 className="w-3 h-3" />
-                </button>
-              )}
-
               <button
                 onClick={onOpenPhotoUpload}
-                className="px-2 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded text-[9px] font-bold transition flex items-center gap-1"
+                className="px-2 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 rounded-md text-[9px] font-bold transition flex items-center gap-1 cursor-pointer"
                 title="Change or upload photo"
               >
                 <Camera className="w-3 h-3" />
@@ -267,9 +268,7 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
                 <img
                   src={isComparingWithOriginal && userPhoto ? userPhoto : geminiImage}
                   alt={`${outfit.title} worn by you`}
-                  className={`w-full max-h-[440px] object-cover object-center transition duration-300 ${
-                    isZoomed ? 'scale-105' : 'scale-100'
-                  }`}
+                  className="w-full max-h-[440px] object-cover object-center"
                   referrerPolicy="no-referrer"
                 />
 
@@ -322,27 +321,54 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
                   </p>
                 </div>
 
-                {/* Garments Preview Pill Row */}
-                <div className="w-full bg-slate-950/70 p-2 rounded-xl border border-slate-800/80">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5 text-left">
-                    Pieces to Fit On Body:
-                  </span>
-                  <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-                    {pairedItems.map((item, idx) => (
-                      <div
-                        key={item.id || idx}
-                        className="w-14 shrink-0 bg-slate-900 rounded-lg p-1 border border-slate-800 text-center"
-                      >
-                        <img
-                          src={item.image_uri}
-                          alt={item.item_name}
-                          className="w-full aspect-square object-cover rounded-md mb-1"
-                        />
-                        <span className="text-[8px] font-semibold text-slate-200 block truncate">
-                          {item.item_name}
-                        </span>
-                      </div>
-                    ))}
+                {/* Garments Preview Grid matching user instructions */}
+                <div className="w-full bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block text-left">
+                      Pieces to Fit On Body:
+                    </span>
+                    <span className="text-[9px] text-emerald-400 font-medium">
+                      Tailored to Image 1
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {pairedItems.map((item, idx) => {
+                      const cat = (item.category || '').toLowerCase();
+                      let label = `'${item.category}' picture`;
+                      let badgeColor = 'text-slate-400';
+                      if (cat.includes('outerwear') || cat.includes('jacket') || cat.includes('coat')) {
+                        label = "'outerwear' picture";
+                        badgeColor = 'text-amber-400';
+                      } else if (cat.includes('top') || cat.includes('shirt')) {
+                        label = "'tops' picture";
+                        badgeColor = 'text-sky-400';
+                      } else if (cat.includes('bottom') || cat.includes('pant')) {
+                        label = "'Bottoms' picture";
+                        badgeColor = 'text-indigo-400';
+                      } else if (cat.includes('shoe') || cat.includes('footwear')) {
+                        label = "'Shoes' picture";
+                        badgeColor = 'text-emerald-400';
+                      }
+
+                      return (
+                        <div
+                          key={item.id || idx}
+                          className="bg-slate-900 rounded-lg p-1.5 border border-slate-800 text-center flex flex-col items-center"
+                        >
+                          <span className={`text-[7.5px] font-extrabold uppercase tracking-tight block mb-1 truncate w-full ${badgeColor}`}>
+                            {label}
+                          </span>
+                          <img
+                            src={item.image_uri}
+                            alt={item.item_name}
+                            className="w-full aspect-square object-cover rounded-md mb-1"
+                          />
+                          <span className="text-[8px] font-semibold text-slate-200 block truncate w-full">
+                            {item.item_name}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 

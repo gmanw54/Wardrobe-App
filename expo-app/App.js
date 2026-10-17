@@ -354,14 +354,14 @@ export default function App() {
       }
 
       const itemsList = paired.map((i) => `${i.primary_color} ${i.item_name} (${i.category})`).join(', ');
-      const promptText = `High-end editorial fashion lookbook photograph. A stylish model wearing this complete outfit: ${itemsList}. Occasion: ${occasionInput}, Season: ${seasonInput}, Weather: ${weatherInput}. Full-body fashion photograph, sharp textures, natural lighting.`;
+      const promptText = `High-end editorial fashion lookbook photograph strictly 1024x1024 resolution. A stylish model wearing this complete outfit: ${itemsList}. Occasion: ${occasionInput}, Season: ${seasonInput}, Weather: ${weatherInput}. Square 1:1 1024x1024 format, sharp textures, natural lighting.`;
 
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: promptText }] }],
-          config: { imageConfig: { aspectRatio: '3:4' } },
+          config: { imageConfig: { aspectRatio: '1:1' } },
         }),
       });
 

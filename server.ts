@@ -267,6 +267,38 @@ INSTRUCTIONS:
 });
 
 /**
+ * Helper to retrieve image data (handles data URL or remote HTTP/HTTPS URL)
+ */
+async function getImageInlineData(uri?: string | null): Promise<{ mimeType: string; data: string } | null> {
+  if (!uri || typeof uri !== 'string') return null;
+
+  if (uri.startsWith('data:')) {
+    const matches = uri.match(/^data:([^;]+);base64,(.+)$/);
+    if (matches) {
+      return { mimeType: matches[1], data: matches[2] };
+    }
+    return null;
+  }
+
+  if (uri.startsWith('http://') || uri.startsWith('https://')) {
+    try {
+      const response = await fetch(uri, { signal: AbortSignal.timeout(6000) });
+      if (response.ok) {
+        const arrayBuf = await response.arrayBuffer();
+        const base64 = Buffer.from(arrayBuf).toString('base64');
+        const rawMime = (response.headers.get('content-type') || 'image/jpeg').split(';')[0].trim().toLowerCase();
+        const mimeType = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(rawMime) ? rawMime : 'image/jpeg';
+        return { mimeType, data: base64 };
+      }
+    } catch (err) {
+      console.warn('Could not fetch remote garment image:', uri, err);
+    }
+  }
+
+  return null;
+}
+
+/**
  * POST /api/generate-outfit-image
  * Uses Gemini API's image generation capability (gemini-3.1-flash-lite-image)
  * to create a stylized, high-quality visualization of the suggested outfit combinations,
@@ -276,101 +308,185 @@ app.post('/api/generate-outfit-image', async (req, res) => {
   try {
     const {
       outfitTitle,
-      outfitStyle,
+      outfitStyle = 'Casual',
       occasion = 'Casual',
       season = 'Fall',
       weather = 'Mild',
       items = [],
       visualSummary = '',
+      userPhoto,
       userPhotoBase64,
       userPhotoMimeType,
+      userPhotoUrl,
     } = req.body;
 
-    const itemsList = items
-      .map((i: any) => `${i.primary_color || ''} ${i.item_name} (${i.category})`.trim())
-      .filter(Boolean)
-      .join(', ');
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(503).json({
+        error: 'GEMINI_API_KEY is not configured on the server.',
+      });
+    }
 
-    const promptText = userPhotoBase64
-      ? `
-Photorealistic fashion editorial lookbook photography.
-PRIMARY SUBJECT: Use the provided styling model uploaded photo as the base reference for the person. Keep the person's exact facial features, face shape, eye shape, smile, skin tone, hair, and body proportions completely unchanged. The person in this photo is the subject.
-OUTFIT TRANSFORMATION: Replace the current outfit they are wearing in their photo with the exact clothing pieces shown in the outfit suggestions:
-${items.map((i: any) => `- ${i.item_name} (${i.category}, ${i.primary_color})`).join('\n')}
-Aesthetic Style: ${outfitStyle} lookbook
-Occasion: ${occasion}
-Season & Weather: ${season} season, ${weather}
-Styling Notes: ${visualSummary || 'Flattering, tailored silhouette with balanced proportions.'}
+    // Resolve target person photo (Image 1)
+    let personImagePart: { mimeType: string; data: string } | null = null;
+    const rawPhotoUri = userPhoto || userPhotoUrl;
+    if (userPhotoBase64) {
+      personImagePart = {
+        data: userPhotoBase64,
+        mimeType: userPhotoMimeType || 'image/jpeg',
+      };
+    } else if (rawPhotoUri) {
+      personImagePart = await getImageInlineData(rawPhotoUri);
+    }
 
-CRITICAL EXECUTION REQUIREMENTS:
-1. Exact Identity & Likeness: Do NOT alter or replace the person's face, facial features, skin tone, or body proportions. Maintain the exact likeness of the person in the reference photo.
-2. Real Fabric & Fit: Ensure the fabric texture, colors, design, drape, and fit of each clothing piece look completely natural, tailored, and realistic on the person. NO cartoon stickers, NO flat floating overlays, NO artificial pasting. The garments must wrap and fold naturally around their body and limbs.
-3. Natural Setting: Place the subject in a natural, well-lit lifestyle setting suited for ${season} ${occasion} with soft, realistic natural ambient lighting and depth of field.
-4. Clean full-body or three-quarter editorial composition showing the complete head-to-toe ensemble.
-`.trim()
-      : `
-High-end editorial fashion lookbook photograph of a stylish model wearing this exact outfit combination:
-- Head-to-toe ensemble: ${itemsList || outfitTitle}
-- Occasion: ${occasion}
-- Season & Atmosphere: ${season} season, ${weather} weather
-- Aesthetic Style: ${outfitStyle} fashion direction
-- Styling Notes: ${visualSummary || 'Cohesive silhouette with balanced proportions and texture contrast.'}
+    // Categorize pieces from the generated outfit
+    const outerwearItem = items.find((i: any) =>
+      ['outerwear', 'jacket', 'coat'].includes(i.category?.toLowerCase())
+    );
+    const topItem = items.find((i: any) =>
+      ['tops', 'top', 'shirt'].includes(i.category?.toLowerCase())
+    );
+    const bottomsItem = items.find((i: any) =>
+      ['bottoms', 'pants', 'bottom'].includes(i.category?.toLowerCase())
+    );
+    const shoesItem = items.find((i: any) =>
+      ['shoes', 'shoe', 'footwear'].includes(i.category?.toLowerCase())
+    );
 
-Composition & Quality:
-Full-body or 3/4 portrait showing the complete outfit together from head to toe. Beautiful soft ambient lighting suited for a ${season} ${occasion} lifestyle setting. Clean silhouette, rich garment textures, Vogue lookbook photography style, crisp details, natural photorealistic finish.
-`.trim();
+    // Fetch images for each garment piece
+    const [outerwearImg, topImg, bottomsImg, shoesImg] = await Promise.all([
+      outerwearItem ? getImageInlineData(outerwearItem.image_uri) : Promise.resolve(null),
+      topItem ? getImageInlineData(topItem.image_uri) : Promise.resolve(null),
+      bottomsItem ? getImageInlineData(bottomsItem.image_uri) : Promise.resolve(null),
+      shoesItem ? getImageInlineData(shoesItem.image_uri) : Promise.resolve(null),
+    ]);
 
     const parts: any[] = [];
 
-    if (userPhotoBase64) {
+    // Part 1: Image 1 strictly as target person
+    if (personImagePart) {
       parts.push({
         inlineData: {
-          data: userPhotoBase64,
-          mimeType: userPhotoMimeType || 'image/jpeg',
+          data: personImagePart.data,
+          mimeType: personImagePart.mimeType,
         },
       });
       parts.push({
-        text: `Base Reference Person Photo: Keep this exact person's face, facial features, skin tone, and body proportions unchanged. Replace their clothes with the outfit pieces described.`,
+        text: `Image 1: Target person [Photo of the user]. Use Image 1 strictly as the target person. Keep my face, identity, exact body shape, proportions, and pose completely unchanged. Do not modify my physical attributes.`,
       });
     }
 
-    // Include garment images as reference parts if base64 data URLs are present
-    for (const item of items) {
-      if (item.image_uri && typeof item.image_uri === 'string' && item.image_uri.startsWith('data:')) {
-        const matches = item.image_uri.match(/^data:([^;]+);base64,(.+)$/);
-        if (matches) {
-          parts.push({
-            inlineData: {
-              mimeType: matches[1],
-              data: matches[2],
-            },
-          });
-          parts.push({
-            text: `Exact garment piece to dress on the person: ${item.item_name} (${item.category}, ${item.primary_color})`,
-          });
-        }
-      }
+    // Garment images with exact category labeling matching user instructions
+    if (outerwearImg && outerwearItem) {
+      parts.push({
+        inlineData: {
+          data: outerwearImg.data,
+          mimeType: outerwearImg.mimeType,
+        },
+      });
+      parts.push({
+        text: `'outerwear' picture: Exact outerwear coat/jacket to dress on the person (${outerwearItem.item_name}, ${outerwearItem.primary_color || ''}).`,
+      });
     }
 
-    parts.push({
-      text: promptText,
-    });
+    if (topImg && topItem) {
+      parts.push({
+        inlineData: {
+          data: topImg.data,
+          mimeType: topImg.mimeType,
+        },
+      });
+      parts.push({
+        text: `'tops' picture: Exact top garment to dress on the person (${topItem.item_name}, ${topItem.primary_color || ''}).`,
+      });
+    }
 
-    const imageModels = ['gemini-3.1-flash-image', 'gemini-3.1-flash-lite-image'];
+    if (bottomsImg && bottomsItem) {
+      parts.push({
+        inlineData: {
+          data: bottomsImg.data,
+          mimeType: bottomsImg.mimeType,
+        },
+      });
+      parts.push({
+        text: `'Bottoms' picture: Exact pants/bottoms garment to dress on the person (${bottomsItem.item_name}, ${bottomsItem.primary_color || ''}).`,
+      });
+    }
+
+    if (shoesImg && shoesItem) {
+      parts.push({
+        inlineData: {
+          data: shoesImg.data,
+          mimeType: shoesImg.mimeType,
+        },
+      });
+      parts.push({
+        text: `'Shoes' picture: Exact shoes to dress on the person (${shoesItem.item_name}, ${shoesItem.primary_color || ''}).`,
+      });
+    }
+
+    // Replacement directives matching user's exact specification
+    const replacementInstructions: string[] = [];
+    if (outerwearItem) {
+      replacementInstructions.push(`Outerwear: Replace my current jacket/coat with the exact coat shown in 'outerwear' picture (${outerwearItem.item_name}).`);
+    }
+    if (topItem) {
+      replacementInstructions.push(`Top: Replace my current top with the exact top shown in the 'tops' picture (${topItem.item_name}).`);
+    }
+    if (bottomsItem) {
+      replacementInstructions.push(`Bottoms: Replace my current pants with the exact bottoms shown in the 'Bottoms' picture (${bottomsItem.item_name}).`);
+    }
+    if (shoesItem) {
+      replacementInstructions.push(`Shoes: Replace my current shoes with the exact shoes shown in the 'Shoes' picture (${shoesItem.item_name}).`);
+    }
+
+    const replacementSection = replacementInstructions.length > 0
+      ? replacementInstructions.join('\n')
+      : `Replace current outfit with the exact clothing items: ${items.map((i: any) => i.item_name).join(', ')}`;
+
+    const promptText = personImagePart
+      ? `
+Use Image 1 strictly as the target person [image 1 will be the photo i upload of myself]. Keep my face, identity, exact body shape, proportions, and pose completely unchanged. Do not modify my physical attributes. Please replace the outfit I am wearing in Image 1 with the specific articles of clothing from the 'pieces to fit on body' that are generated after clicking 'Generate 3 Outfits' The articles of clothing i want replaced are:
+${replacementSection}
+
+Render the final output as a seamless, photorealistic fashion photograph. Ensure the lighting, shadows, and fabric textures naturally drape over my body shape from Image 1.
+
+Style Direction: ${outfitStyle} lookbook
+Occasion: ${occasion}
+Season & Weather: ${season} season, ${weather}
+Editorial Details: ${visualSummary || 'Flattering, realistic fit with natural fabric folds and believable ambient shadows.'}
+Output Requirement: Strictly 1024x1024 square 1:1 photorealistic fashion photograph showing the complete ensemble naturally worn on the subject from Image 1.
+`.trim()
+      : `
+High-end editorial fashion photograph of a stylish model wearing this exact outfit combination:
+${replacementSection}
+Style Direction: ${outfitStyle} lookbook
+Occasion: ${occasion}
+Season & Weather: ${season} season, ${weather}
+Editorial Details: ${visualSummary || 'Flattering, realistic fit with natural fabric folds and believable ambient shadows.'}
+Render the final output as a seamless, photorealistic fashion photograph. Ensure the lighting, shadows, and fabric textures naturally drape.
+Output Requirement: Strictly 1024x1024 square 1:1 photorealistic photograph.
+`.trim();
+
+    parts.push({ text: promptText });
+
+    const imageModels = [
+      { name: 'gemini-3.1-flash-image', config: { aspectRatio: '1:1', imageSize: '1K' } },
+      { name: 'gemini-3.1-flash-lite-image', config: { aspectRatio: '1:1' } },
+    ];
+
     let generatedImageUrl: string | null = null;
     let lastError: any = null;
 
-    for (const modelName of imageModels) {
+    for (const { name: modelName, config: imgConfig } of imageModels) {
       try {
+        console.log(`Calling Gemini image model: ${modelName}`);
         const response = await ai.models.generateContent({
           model: modelName,
           contents: {
             parts,
           },
           config: {
-            imageConfig: {
-              aspectRatio: '3:4',
-            },
+            imageConfig: imgConfig as any,
           },
         });
 
@@ -387,10 +503,13 @@ Full-body or 3/4 portrait showing the complete outfit together from head to toe.
           if (generatedImageUrl) break;
         }
 
-        if (generatedImageUrl) break;
+        if (generatedImageUrl) {
+          console.log(`Successfully generated photorealistic look with ${modelName}`);
+          break;
+        }
       } catch (err: any) {
         lastError = err;
-        console.log(`Image model ${modelName} call: status ${err.status || err.message}`);
+        console.warn(`Image model ${modelName} returned status ${err.status || err.message}`);
       }
     }
 
@@ -401,231 +520,27 @@ Full-body or 3/4 portrait showing the complete outfit together from head to toe.
       });
     }
 
-    // If quota exceeded or error occurred, return informative error
-    if (lastError?.status === 429) {
+    // Handle error or quota restriction gracefully with actionable feedback
+    const isQuotaOrKey =
+      lastError?.status === 429 ||
+      lastError?.status === 403 ||
+      lastError?.message?.includes('RESOURCE_EXHAUSTED') ||
+      lastError?.message?.includes('Quota') ||
+      lastError?.message?.includes('API key');
+
+    if (isQuotaOrKey || lastError) {
+      const errorMsg = lastError?.message || 'Gemini image generation models (gemini-3.1-flash-image) require an active paid API key.';
       return res.status(429).json({
         success: false,
         error: 'QUOTA_EXCEEDED',
-        message: 'Image generation model requires an active Gemini API key with quota.',
+        message: `Photorealistic Virtual Try-On: ${errorMsg}`,
       });
     }
 
-    // If Gemini image model quota is exceeded (429 free tier limit: 0) or upstream is busy,
-    // generate a stylized, high-quality vector lookbook visualization matching the outfit, season & occasion.
-    console.log('Synthesizing stylized editorial lookbook visual.');
-
-    const topItem = items.find((i: any) => i.category === 'tops') || items[0];
-    const outerItem = items.find((i: any) => i.category === 'outerwear');
-    const bottomItem = items.find((i: any) => i.category === 'bottoms') || items[1] || items[0];
-    const shoeItem = items.find((i: any) => i.category === 'shoes') || items[2] || items[0];
-
-    const getColorHex = (name: string, fallback: string) => {
-      const c = (name || '').toLowerCase();
-      if (c.includes('navy')) return '#1e3a8a';
-      if (c.includes('blue')) return '#2563eb';
-      if (c.includes('white')) return '#f8fafc';
-      if (c.includes('cream') || c.includes('ivory')) return '#fef3c7';
-      if (c.includes('olive')) return '#3f6212';
-      if (c.includes('green') || c.includes('sage')) return '#15803d';
-      if (c.includes('black')) return '#0f172a';
-      if (c.includes('brown') || c.includes('tan') || c.includes('camel')) return '#78350f';
-      if (c.includes('grey') || c.includes('gray')) return '#475569';
-      if (c.includes('red') || c.includes('burgundy')) return '#881337';
-      if (c.includes('pink')) return '#be185d';
-      if (c.includes('beige')) return '#d6d3d1';
-      return fallback;
-    };
-
-    const topColor = getColorHex(topItem?.primary_color, '#e2e8f0');
-    const outerColor = outerItem ? getColorHex(outerItem.primary_color, '#1e3a8a') : null;
-    const bottomColor = getColorHex(bottomItem?.primary_color, '#334155');
-    const shoeColor = getColorHex(shoeItem?.primary_color, '#0f172a');
-
-    const seasonGradient = season === 'Winter'
-      ? { from: '#0284c7', to: '#0f172a', accent: '#38bdf8' }
-      : season === 'Spring'
-      ? { from: '#059669', to: '#0f172a', accent: '#34d399' }
-      : season === 'Summer'
-      ? { from: '#d97706', to: '#0f172a', accent: '#fbbf24' }
-      : { from: '#b45309', to: '#0f172a', accent: '#f59e0b' }; // Fall
-
-    const userVisualSection = userPhotoBase64
-      ? `
-        <!-- User Portrait as the Canvas Model -->
-        <clipPath id="userPortraitClip">
-          <rect x="25" y="140" width="180" height="490" rx="16" />
-        </clipPath>
-        <image href="data:${userPhotoMimeType || 'image/jpeg'};base64,${userPhotoBase64}" x="25" y="140" width="180" height="490" preserveAspectRatio="xMidYMid slice" clip-path="url(#userPortraitClip)" />
-        <rect x="25" y="140" width="180" height="490" rx="16" fill="#000000" fill-opacity="0.15" />
-
-        <!-- Overlay Exact Garments onto User Body -->
-        ${topItem?.image_uri ? `
-          <!-- Top Garment Fitted on Torso -->
-          <g filter="url(#garmentShadow)">
-            <image href="${topItem.image_uri}" x="40" y="270" width="150" height="130" preserveAspectRatio="xMidYMid contain" />
-          </g>
-        ` : `<path d="M70 270 L150 270 L142 370 L78 370 Z" fill="${topColor}" stroke="#334155" stroke-width="1.5" />`}
-
-        ${outerItem?.image_uri ? `
-          <!-- Outerwear Garment Layered Over Shoulders -->
-          <g filter="url(#garmentShadow)">
-            <image href="${outerItem.image_uri}" x="30" y="245" width="170" height="160" preserveAspectRatio="xMidYMid contain" />
-          </g>
-        ` : outerColor ? `
-          <path d="M60 268 L88 268 L100 350 L70 366 Z" fill="${outerColor}" stroke="#1e293b" stroke-width="1" />
-          <path d="M160 268 L132 268 L120 350 L150 366 Z" fill="${outerColor}" stroke="#1e293b" stroke-width="1" />
-        ` : ''}
-
-        ${bottomItem?.image_uri ? `
-          <!-- Bottom Garment Fitted on Legs -->
-          <g filter="url(#garmentShadow)">
-            <image href="${bottomItem.image_uri}" x="45" y="380" width="140" height="155" preserveAspectRatio="xMidYMid contain" />
-          </g>
-        ` : `<path d="M78 372 L142 372 L138 520 L116 520 L110 420 L104 520 L82 520 Z" fill="${bottomColor}" stroke="#1e293b" stroke-width="1.5" />`}
-
-        ${shoeItem?.image_uri ? `
-          <!-- Footwear Grounded at Feet -->
-          <g filter="url(#garmentShadow)">
-            <image href="${shoeItem.image_uri}" x="55" y="530" width="120" height="65" preserveAspectRatio="xMidYMid contain" />
-          </g>
-        ` : `
-          <ellipse cx="94" cy="536" rx="14" ry="7" fill="${shoeColor}" stroke="#475569" stroke-width="1" />
-          <ellipse cx="126" cy="536" rx="14" ry="7" fill="${shoeColor}" stroke="#475569" stroke-width="1" />
-        `}
-
-        <!-- Direct Fit Badge Tag -->
-        <rect x="35" y="152" width="160" height="24" rx="12" fill="#064e3b" stroke="#10b981" stroke-width="1.5" />
-        <text x="115" y="168" fill="#34d399" font-size="9" font-weight="800" text-anchor="middle" font-family="system-ui, sans-serif">✨ EXACT PIECES ON YOU</text>
-      `
-      : `
-        <!-- Mannequin Default Silhouette -->
-        <circle cx="110" cy="195" r="32" fill="#1e293b" stroke="#334155" stroke-width="2" />
-        <path d="M110 180 a10 10 0 1 0 0.1 0 Z M96 215 c0 -10 10 -15 14 -15 s14 5 14 15 Z" fill="#94a3b8" />
-        <rect x="75" y="235" width="70" height="16" rx="8" fill="#1e293b" />
-        <text x="110" y="246" fill="#94a3b8" font-size="9" font-weight="700" text-anchor="middle" font-family="system-ui, sans-serif">MODEL</text>
-
-        <!-- Silhouette Torso / Layering -->
-        <path d="M70 270 L150 270 L142 370 L78 370 Z" fill="${topColor}" stroke="#334155" stroke-width="1.5" />
-        <path d="M96 270 L110 286 L124 270 Z" fill="#0f172a" />
-
-        ${outerColor ? `
-          <path d="M60 268 L88 268 L100 350 L70 366 Z" fill="${outerColor}" stroke="#1e293b" stroke-width="1" />
-          <path d="M160 268 L132 268 L120 350 L150 366 Z" fill="${outerColor}" stroke="#1e293b" stroke-width="1" />
-          <path d="M62 268 L60 365 L76 368 L88 270 Z" fill="${outerColor}" />
-          <path d="M158 268 L160 365 L144 368 L132 270 Z" fill="${outerColor}" />
-        ` : ''}
-
-        <path d="M78 372 L142 372 L138 520 L116 520 L110 420 L104 520 L82 520 Z" fill="${bottomColor}" stroke="#1e293b" stroke-width="1.5" />
-        <ellipse cx="94" cy="536" rx="14" ry="7" fill="${shoeColor}" stroke="#475569" stroke-width="1" />
-        <ellipse cx="126" cy="536" rx="14" ry="7" fill="${shoeColor}" stroke="#475569" stroke-width="1" />
-      `;
-
-    const itemsSvgList = items.slice(0, 4).map((item: any, idx: number) => {
-      const y = 350 + idx * 46;
-      const color = getColorHex(item.primary_color, '#64748b');
-      const safeName = (item.item_name || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const safeCat = (item.category || '').toUpperCase();
-      return `
-        <g transform="translate(240, ${y})">
-          <rect width="320" height="38" rx="8" fill="#131d31" stroke="#1e293b" stroke-width="1" />
-          <circle cx="20" cy="19" r="7" fill="${color}" stroke="#475569" stroke-width="1" />
-          <text x="36" y="16" fill="#f8fafc" font-size="11" font-weight="700" font-family="system-ui, sans-serif">${safeName.slice(0, 32)}</text>
-          <text x="36" y="29" fill="#94a3b8" font-size="9" font-weight="600" font-family="system-ui, sans-serif">${safeCat} • ${item.primary_color || 'Neutral'}</text>
-        </g>
-      `;
-    }).join('');
-
-    const safeTitle = (outfitTitle || 'Curated Ensemble').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const safeSummary = (visualSummary || `Cohesive head-to-toe ensemble styled for ${occasion} in ${season}.`).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-    const stylizedSvg = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 780" width="100%" height="100%">
-  <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0b1120" />
-      <stop offset="50%" stop-color="#070c18" />
-      <stop offset="100%" stop-color="#020617" />
-    </linearGradient>
-    <linearGradient id="seasonAmbient" x1="0%" y1="0%" x2="100%" y2="50%">
-      <stop offset="0%" stop-color="${seasonGradient.from}" stop-opacity="0.35" />
-      <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
-    </linearGradient>
-    <filter id="garmentShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000000" flood-opacity="0.8" />
-    </filter>
-  </defs>
-
-  <!-- Background Canvas -->
-  <rect width="600" height="780" fill="url(#bgGrad)" />
-  <rect width="600" height="320" fill="url(#seasonAmbient)" />
-
-  <!-- Magazine Editorial Header -->
-  <g transform="translate(30, 42)">
-    <rect width="160" height="20" rx="10" fill="#1e293b" stroke="#334155" stroke-width="1" />
-    <text x="80" y="14" fill="${seasonGradient.accent}" font-size="9" font-weight="800" letter-spacing="1.5" text-anchor="middle" font-family="system-ui, sans-serif">AURA LOOKBOOK</text>
-    
-    <text x="0" y="44" fill="#94a3b8" font-size="11" font-weight="700" letter-spacing="1.8" font-family="system-ui, sans-serif">${season.toUpperCase()} • ${occasion.toUpperCase()} • ${outfitStyle.toUpperCase()}</text>
-    <text x="0" y="74" fill="#ffffff" font-size="22" font-weight="800" font-family="Georgia, serif">${safeTitle.slice(0, 36)}</text>
-  </g>
-
-  <!-- Left Column: Visual Silhouette / Exact Pieces Layered on User -->
-  <g transform="translate(10, 0)">
-    <!-- Backdrop Card -->
-    <rect x="25" y="140" width="180" height="490" rx="16" fill="#0f172a" stroke="#1e293b" stroke-width="1.5" />
-    
-    ${userVisualSection}
-
-    <!-- Head-to-Toe Assembly Badge -->
-    <rect x="45" y="590" width="140" height="22" rx="11" fill="#131d31" stroke="#334155" stroke-width="1" />
-    <text x="115" y="604" fill="#e2e8f0" font-size="9" font-weight="700" text-anchor="middle" font-family="system-ui, sans-serif">COMPLETE ENSEMBLE</text>
-  </g>
-
-  <!-- Right Column: Assembled Garments Stack -->
-  <g>
-    <text x="240" y="160" fill="#94a3b8" font-size="10" font-weight="800" letter-spacing="1.2" font-family="system-ui, sans-serif">OUTFIT LAYERING BREAKDOWN</text>
-    
-    <!-- Visual Summary Quote Card -->
-    <rect x="240" y="174" width="330" height="135" rx="12" fill="#0f172a" stroke="#1e293b" stroke-width="1.5" />
-    <text x="256" y="202" fill="${seasonGradient.accent}" font-size="10" font-weight="800" font-family="system-ui, sans-serif">✨ STYLIST VISUALIZATION:</text>
-    <foreignObject x="256" y="210" width="298" height="90">
-      <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: system-ui, sans-serif; font-size: 11px; color: #cbd5e1; line-height: 1.5; overflow: hidden;">
-        ${safeSummary}
-      </div>
-    </foreignObject>
-
-    <text x="240" y="338" fill="#94a3b8" font-size="10" font-weight="800" letter-spacing="1.2" font-family="system-ui, sans-serif">ASSEMBLED CLOSET PIECES</text>
-    ${itemsSvgList}
-  </g>
-
-  <!-- Bottom Harmonized Color Palette Strip -->
-  <g transform="translate(30, 655)">
-    <rect width="540" height="95" rx="14" fill="#0f172a" stroke="#1e293b" stroke-width="1.5" />
-    <text x="20" y="28" fill="#94a3b8" font-size="10" font-weight="800" letter-spacing="1" font-family="system-ui, sans-serif">SEASONAL COLOR HARMONY PALETTE</text>
-    
-    <circle cx="30" cy="58" r="14" fill="${topColor}" stroke="#475569" stroke-width="1.5" />
-    <text x="52" y="62" fill="#e2e8f0" font-size="11" font-weight="700" font-family="system-ui, sans-serif">${topItem?.primary_color || 'Top'}</text>
-
-    ${outerColor ? `
-      <circle cx="160" cy="58" r="14" fill="${outerColor}" stroke="#475569" stroke-width="1.5" />
-      <text x="182" y="62" fill="#e2e8f0" font-size="11" font-weight="700" font-family="system-ui, sans-serif">${outerItem.primary_color}</text>
-    ` : ''}
-
-    <circle cx="290" cy="58" r="14" fill="${bottomColor}" stroke="#475569" stroke-width="1.5" />
-    <text x="312" y="62" fill="#e2e8f0" font-size="11" font-weight="700" font-family="system-ui, sans-serif">${bottomItem?.primary_color || 'Bottom'}</text>
-
-    <circle cx="420" cy="58" r="14" fill="${shoeColor}" stroke="#475569" stroke-width="1.5" />
-    <text x="442" y="62" fill="#e2e8f0" font-size="11" font-weight="700" font-family="system-ui, sans-serif">${shoeItem?.primary_color || 'Shoes'}</text>
-  </g>
-</svg>
-`.trim();
-
-    const base64Svg = Buffer.from(stylizedSvg).toString('base64');
-    const svgDataUri = `data:image/svg+xml;base64,${base64Svg}`;
-
-    return res.json({
-      success: true,
-      imageUrl: svgDataUri,
-      isStylizedVisual: true,
+    return res.status(500).json({
+      success: false,
+      error: 'IMAGE_GENERATION_FAILED',
+      message: 'Failed to generate photorealistic look. Please retry in a moment.',
     });
   } catch (error: any) {
     console.error('Error in /api/generate-outfit-image:', error);
@@ -643,7 +558,10 @@ async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

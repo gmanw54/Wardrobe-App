@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+/* Suppress Vite's development HMR/WebSocket error overlay in the preview browser */
+vite-error-overlay {
+  display: none !important;
+}

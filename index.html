@@ -9,6 +9,29 @@
     <meta property="og:description" content="Cross-platform mobile wardrobe and styling application built for React Native and Expo with Gemini AI vision and personalized outfit generation." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function() {
+        function isIgnored(msg) {
+          if (!msg) return false;
+          var s = String(msg).toLowerCase();
+          return s.includes('websocket') || s.includes('failed to connect') || s.includes('closed without opened') || s.includes('vite');
+        }
+        window.addEventListener('unhandledrejection', function(e) {
+          var reason = e && (e.reason ? (e.reason.message || e.reason) : '');
+          if (isIgnored(reason)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+        window.addEventListener('error', function(e) {
+          var msg = e && (e.message || (e.error && (e.error.message || e.error)));
+          if (isIgnored(msg)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

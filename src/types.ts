@@ -35,6 +35,15 @@ export interface SavedOutfit {
   saved_at: string;
 }
 
+export interface OutfitGenerationHistoryItem {
+  id: string;
+  timestamp: string;
+  occasion: string;
+  season: string;
+  weather: string;
+  outfits: OutfitRecommendation[];
+}
+
 export interface AnalysisResult {
   item_name: string;
   category: ClothingCategory;

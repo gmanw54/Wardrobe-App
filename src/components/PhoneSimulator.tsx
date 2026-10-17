@@ -25,9 +25,15 @@ import {
   User,
   Bookmark,
   BookmarkCheck,
-  Heart
+  Heart,
+  History,
+  Clock,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
+  RotateCcw
 } from 'lucide-react';
-import { WardrobeItem, OutfitRecommendation, ClothingCategory, FormalityLevel, SavedOutfit } from '../types';
+import { WardrobeItem, OutfitRecommendation, ClothingCategory, FormalityLevel, SavedOutfit, OutfitGenerationHistoryItem } from '../types';
 import { INITIAL_WARDROBE_SEED, SAMPLE_PRESETS_TO_TEST } from '../data/seedWardrobe';
 import { OutfitLookbookVisual } from './OutfitLookbookVisual';
 
@@ -83,6 +89,60 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
   const [generatingOutfits, setGeneratingOutfits] = useState(false);
   const [outfitResults, setOutfitResults] = useState<OutfitRecommendation[] | null>(null);
   const [generatorError, setGeneratorError] = useState<string | null>(null);
+  const [generatorSubTab, setGeneratorSubTab] = useState<'create' | 'history'>('create');
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+
+  // Outfit Generation History (persisted)
+  const [generationHistory, setGenerationHistory] = useState<OutfitGenerationHistoryItem[]>(() => {
+    try {
+      const stored = localStorage.getItem('aura_outfit_generation_history');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [
+      {
+        id: 'hist-seed-1',
+        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
+        occasion: 'Casual Dinner',
+        season: 'Fall',
+        weather: 'Mild & crisp, 64°F',
+        outfits: [
+          {
+            style: 'Casual',
+            title: 'Effortless Fall Neutral',
+            item_ids: ['wardrobe-item-1', 'wardrobe-item-2', 'wardrobe-item-3'],
+            stylist_rationale: 'Balanced autumnal palette with rich knit textures and structured dark bottoms.',
+            layering_tip: 'Half-tuck top to accentuate waistline proportions.',
+            visual_summary: 'Chic autumn dinner ensemble pairing a structured knit with tailored trousers.',
+          },
+          {
+            style: 'Elevated',
+            title: 'Architectural Fall Chic',
+            item_ids: ['wardrobe-item-4', 'wardrobe-item-2', 'wardrobe-item-3'],
+            stylist_rationale: 'Adding structured outerwear transforms the foundation into a sharp ensemble tailored for a Fall dinner.',
+            layering_tip: 'Drape outerwear over shoulders for effortless authority.',
+            visual_summary: 'Structured blazer layered over sleek foundations for a dinner setting.',
+          },
+          {
+            style: 'Bold/Statement',
+            title: 'High-Contrast Fall Direction',
+            item_ids: ['wardrobe-item-1', 'wardrobe-item-4', 'wardrobe-item-3'],
+            stylist_rationale: 'Plays with silhouette tension and bold character with dark tones and statement color.',
+            layering_tip: 'Add a distinctive watch or accent chain to anchor the focal point.',
+            visual_summary: 'High-contrast pairing featuring statement top and dark trousers.',
+          },
+        ],
+      },
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('aura_outfit_generation_history', JSON.stringify(generationHistory));
+    } catch {}
+  }, [generationHistory]);
 
   // User styling model / photo of me state
   const [userPhoto, setUserPhoto] = useState<string | null>(() => {
@@ -110,6 +170,8 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
 
   // Settings / Info modal
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showClearHistoryConfirm, setShowClearHistoryConfirm] = useState(false);
 
   // File input refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -323,17 +385,18 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
   };
 
   // Reset wardrobe to default seeds
-  const handleResetToSeed = () => {
-    if (confirm('Reset wardrobe to default starter collection?')) {
-      setWardrobe(INITIAL_WARDROBE_SEED);
-      setSelectedItemDetail(null);
-    }
+  const handleConfirmReset = () => {
+    setWardrobe(INITIAL_WARDROBE_SEED);
+    setSelectedItemDetail(null);
+    setShowResetConfirm(false);
+    setSaveToast('Wardrobe reset to starter collection');
+    setTimeout(() => setSaveToast(null), 2500);
   };
 
   // Generate Outfits via Gemini backend
   const handleGenerateOutfits = async () => {
     if (wardrobe.length < 2) {
-      alert('Please have at least 2 wardrobe items before generating outfits!');
+      setGeneratorError('Please add at least 2 wardrobe items before generating outfits.');
       return;
     }
 
@@ -363,12 +426,91 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
         throw new Error('Invalid outfit structure returned.');
       }
       setOutfitResults(data.outfits);
+      recordGenerationHistory(data.outfits, occasionInput, seasonInput, weatherInput);
     } catch (err: any) {
       console.warn('Outfit generation error:', err);
       // Stylist intelligent fallback assembly from user inventory
       generateLocalFallbackOutfits();
     } finally {
       setGeneratingOutfits(false);
+    }
+  };
+
+  // Helper to record successful generation in history
+  const recordGenerationHistory = (
+    outfits: OutfitRecommendation[],
+    occasion: string,
+    season: string,
+    weather: string
+  ) => {
+    if (!outfits || outfits.length === 0) return;
+    const newEntry: OutfitGenerationHistoryItem = {
+      id: `gen-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      timestamp: new Date().toISOString(),
+      occasion: occasion.trim() || 'Casual',
+      season,
+      weather,
+      outfits,
+    };
+    setGenerationHistory((prev) => [newEntry, ...prev]);
+  };
+
+  const handleLoadHistoryGeneration = (historyItem: OutfitGenerationHistoryItem) => {
+    setOccasionInput(historyItem.occasion);
+    setSeasonInput(historyItem.season as any);
+    setWeatherInput(historyItem.weather);
+    setOutfitResults(historyItem.outfits);
+    setGeneratorSubTab('create');
+    setSaveToast(`Restored ${historyItem.occasion} looks`);
+    setTimeout(() => setSaveToast(null), 2500);
+  };
+
+  const handleDeleteHistoryItem = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setGenerationHistory((prev) => prev.filter((item) => item.id !== id));
+    if (expandedHistoryId === id) setExpandedHistoryId(null);
+  };
+
+  const handleConfirmClearHistory = () => {
+    setGenerationHistory([]);
+    setExpandedHistoryId(null);
+    setShowClearHistoryConfirm(false);
+    setSaveToast('Outfit history cleared');
+    setTimeout(() => setSaveToast(null), 2500);
+  };
+
+  const formatHistoryTimestamp = (isoString: string) => {
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return { relative: 'Recently', full: 'Recent Look' };
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const diffMins = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      let relative = '';
+      if (diffMins < 1) relative = 'Just now';
+      else if (diffMins < 60) relative = `${diffMins}m ago`;
+      else if (diffHours < 24) relative = `${diffHours}h ago`;
+      else if (diffDays === 1) relative = 'Yesterday';
+      else relative = `${diffDays}d ago`;
+
+      const formattedDate = d.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+      });
+      const formattedTime = d.toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+      });
+
+      return {
+        relative,
+        full: `${formattedDate} at ${formattedTime}`,
+      };
+    } catch {
+      return { relative: 'Past Look', full: isoString };
     }
   };
 
@@ -412,6 +554,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
     ];
 
     setOutfitResults(fallback);
+    recordGenerationHistory(fallback, occasionInput, seasonInput, weatherInput);
   };
 
   // Filtered wardrobe
@@ -894,7 +1037,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
                     <div className="pt-2 flex justify-between items-center text-[11px] text-slate-400">
                       <span>{wardrobe.length} Total Closet Pieces</span>
                       <button
-                        onClick={handleResetToSeed}
+                        onClick={() => setShowResetConfirm(true)}
                         className="hover:text-slate-600 dark:hover:text-slate-300 underline"
                       >
                         Reset Starter Items
@@ -1054,6 +1197,39 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
                   </p>
                 </div>
 
+                {/* Generator Mode Sub-Tabs: Generate vs History */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+                  <button
+                    onClick={() => setGeneratorSubTab('create')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                      generatorSubTab === 'create'
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Generate Looks</span>
+                  </button>
+                  <button
+                    onClick={() => setGeneratorSubTab('history')}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                      generatorSubTab === 'history'
+                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <History className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>History</span>
+                    {generationHistory.length > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
+                        {generationHistory.length}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                {generatorSubTab === 'create' && (
+                  <>
                 {/* Styling Avatar / My Photo Profile Card */}
                 <div className="bg-slate-900 text-white p-3 rounded-2xl border border-slate-800 shadow-xs flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
@@ -1374,6 +1550,199 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
                     })}
                   </div>
                 )}
+                </>
+                )}
+
+                {/* ============================================================= */}
+                {/* GENERATOR SUB-TAB: HISTORY VIEW */}
+                {/* ============================================================= */}
+                {generatorSubTab === 'history' && (
+                  <div className="space-y-4">
+                    {/* History Header & Controls */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                          <History className="w-4 h-4 text-indigo-500" />
+                          <span>Past Generations</span>
+                        </h3>
+                        <p className="text-[11px] text-slate-500">
+                          {generationHistory.length === 0
+                            ? 'No styling records saved yet'
+                            : `${generationHistory.length} recorded session${generationHistory.length === 1 ? '' : 's'}`}
+                        </p>
+                      </div>
+
+                      {generationHistory.length > 0 && (
+                        <button
+                          onClick={() => setShowClearHistoryConfirm(true)}
+                          className="text-[10px] text-rose-500 hover:text-rose-600 dark:hover:text-rose-400 font-semibold px-2 py-1 rounded-md border border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Empty State */}
+                    {generationHistory.length === 0 ? (
+                      <div className="p-8 text-center bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-3">
+                        <div className="w-12 h-12 mx-auto rounded-full bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-500 border border-indigo-200 dark:border-indigo-800">
+                          <Clock className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                            No Styling History Yet
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto leading-relaxed">
+                            Generate outfits for any occasion, and each session will be preserved here with timestamps and recommendations for quick reference.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setGeneratorSubTab('create')}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs shadow-xs transition inline-flex items-center gap-1.5"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                          <span>Generate Your First Outfits</span>
+                        </button>
+                      </div>
+                    ) : (
+                      /* History List */
+                      <div className="space-y-3">
+                        {generationHistory.map((item) => {
+                          const timeInfo = formatHistoryTimestamp(item.timestamp);
+                          const isExpanded = expandedHistoryId === item.id;
+
+                          return (
+                            <div
+                              key={item.id}
+                              className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-xs overflow-hidden transition"
+                            >
+                              {/* Entry Header */}
+                              <div className="p-3.5 border-b border-slate-100 dark:border-slate-700/60 flex flex-col gap-2">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="space-y-0.5">
+                                    <div className="flex items-center gap-2">
+                                      <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-md border border-indigo-200/80 dark:border-indigo-800/80">
+                                        {item.occasion}
+                                      </span>
+                                      <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                                        <Clock className="w-3 h-3" />
+                                        {timeInfo.relative}
+                                      </span>
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 flex items-center gap-2 pt-0.5">
+                                      <span>{timeInfo.full}</span>
+                                      <span>•</span>
+                                      <span>{item.season}</span>
+                                      {item.weather && (
+                                        <>
+                                          <span>•</span>
+                                          <span className="truncate max-w-[120px]">{item.weather}</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleDeleteHistoryItem(item.id)}
+                                      className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition"
+                                      title="Remove from history"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex items-center gap-2 pt-1">
+                                  <button
+                                    onClick={() => handleLoadHistoryGeneration(item)}
+                                    className="flex-1 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs shadow-2xs transition flex items-center justify-center gap-1.5"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    <span>Restore & View Looks</span>
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      setExpandedHistoryId(isExpanded ? null : item.id)
+                                    }
+                                    className="py-1.5 px-2.5 bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-lg text-xs transition flex items-center gap-1"
+                                    title={isExpanded ? 'Collapse' : 'Inspect Looks'}
+                                  >
+                                    <span>{item.outfits.length} looks</span>
+                                    {isExpanded ? (
+                                      <ChevronUp className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <ChevronDown className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Expanded Outfits Preview */}
+                              {isExpanded && (
+                                <div className="p-3.5 bg-slate-50/70 dark:bg-slate-900/50 space-y-3">
+                                  {item.outfits.map((outfit, oIdx) => {
+                                    const pairedItems = outfit.item_ids
+                                      .map((id) => wardrobe.find((w) => w.id === id))
+                                      .filter(Boolean) as WardrobeItem[];
+
+                                    return (
+                                      <div
+                                        key={oIdx}
+                                        className="bg-white dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2 text-xs"
+                                      >
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
+                                              {outfit.style}
+                                            </span>
+                                            <span className="font-bold text-slate-900 dark:text-white text-xs">
+                                              {outfit.title}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        <p className="text-[11px] text-slate-600 dark:text-slate-300 italic">
+                                          "{outfit.stylist_rationale}"
+                                        </p>
+
+                                        {/* Paired Wardrobe Item Thumbnails */}
+                                        <div className="flex gap-1.5 overflow-x-auto py-1 scrollbar-none">
+                                          {pairedItems.map((pi, piIdx) => (
+                                            <div
+                                              key={pi.id || piIdx}
+                                              className="w-12 shrink-0 bg-slate-50 dark:bg-slate-900 rounded-md p-1 border border-slate-200 dark:border-slate-700 text-center"
+                                            >
+                                              <img
+                                                src={pi.image_uri}
+                                                alt={pi.item_name}
+                                                className="w-full aspect-square object-cover rounded mb-0.5"
+                                              />
+                                              <span className="text-[8px] font-medium text-slate-700 dark:text-slate-300 block truncate">
+                                                {pi.item_name}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+
+                                        {outfit.layering_tip && (
+                                          <p className="text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 p-1.5 rounded-lg border border-amber-200/60 dark:border-amber-900/60">
+                                            💡 {outfit.layering_tip}
+                                          </p>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1536,6 +1905,76 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
                 >
                   Inspect React Native Source Code →
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================= */}
+          {/* RESET STARTER WARDROBE CONFIRMATION MODAL */}
+          {/* ============================================================= */}
+          {showResetConfirm && (
+            <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3 max-w-xs w-full text-center">
+                <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                    Reset Starter Collection?
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    This will restore the 8 default starter garments. Any custom pieces you added will be replaced.
+                  </p>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setShowResetConfirm(false)}
+                    className="flex-1 py-2 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmReset}
+                    className="flex-1 py-2 px-3 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs transition shadow-xs"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================= */}
+          {/* CLEAR ALL HISTORY CONFIRMATION MODAL */}
+          {/* ============================================================= */}
+          {showClearHistoryConfirm && (
+            <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-3 max-w-xs w-full text-center">
+                <div className="w-10 h-10 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center mx-auto">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+                    Clear Styling History?
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                    All past generated outfit sessions will be permanently deleted from history.
+                  </p>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setShowClearHistoryConfirm(false)}
+                    className="flex-1 py-2 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold rounded-xl text-xs transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmClearHistory}
+                    className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl text-xs transition shadow-xs"
+                  >
+                    Clear All
+                  </button>
+                </div>
               </div>
             </div>
           )}
