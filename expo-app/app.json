@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Aura Wardrobe",
-    "slug": "aura-wardrobe",
+    "name": "Closet Calculator",
+    "slug": "closet-calculator",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,10 +13,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.aurawardrobe.app",
+      "bundleIdentifier": "com.closetcalculator.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "Aura Wardrobe uses the camera to photograph your clothes for AI categorization and digital closet management.",
-        "NSPhotoLibraryUsageDescription": "Aura Wardrobe needs access to your photos to upload garment pictures for outfit styling."
+        "NSCameraUsageDescription": "Closet Calculator uses the camera to photograph your clothes for AI categorization and digital closet management.",
+        "NSPhotoLibraryUsageDescription": "Closet Calculator needs access to your photos to upload garment pictures for outfit styling."
       }
     },
     "android": {
@@ -24,7 +24,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.aurawardrobe.app",
+      "package": "com.closetcalculator.app",
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",

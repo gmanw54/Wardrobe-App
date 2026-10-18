@@ -3,19 +3,48 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mobile Wardrobe & AI Stylist</title>
-    <meta name="description" content="Cross-platform mobile wardrobe and styling application built for React Native and Expo with Gemini AI vision and personalized outfit generation." />
-    <meta property="og:title" content="Mobile Wardrobe & AI Stylist" />
-    <meta property="og:description" content="Cross-platform mobile wardrobe and styling application built for React Native and Expo with Gemini AI vision and personalized outfit generation." />
+    <title>Closet Calculator – Smart Wardrobe & AI Stylist</title>
+    <meta name="description" content="Calculate and style outfit combinations from your digital closet with Gemini AI vision and personalized lookbook recommendations." />
+    <meta property="og:title" content="Closet Calculator – Smart Wardrobe & AI Stylist" />
+    <meta property="og:description" content="Calculate and style outfit combinations from your digital closet with Gemini AI vision and personalized lookbook recommendations." />
+    <meta property="og:site_name" content="Closet Calculator" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Closet Calculator – Smart Wardrobe & AI Stylist" />
+    <meta name="twitter:description" content="Calculate and style outfit combinations from your digital closet with Gemini AI vision and personalized lookbook recommendations." />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Closet Calculator",
+        "applicationCategory": "LifestyleApplication",
+        "operatingSystem": "All",
+        "description": "Calculate and style outfit combinations from your digital closet with Gemini AI vision and personalized lookbook recommendations."
+      }
+    </script>
     <script>
       (function() {
         function isIgnored(msg) {
           if (!msg) return false;
           var s = String(msg).toLowerCase();
-          return s.includes('websocket') || s.includes('failed to connect') || s.includes('closed without opened') || s.includes('vite');
+          return s.includes('websocket') || s.includes('failed to connect') || s.includes('closed without opened') || s.includes('[vite]');
         }
+        var origError = console.error;
+        console.error = function() {
+          var firstArg = arguments[0];
+          if (firstArg && isIgnored(firstArg)) {
+            return;
+          }
+          return origError.apply(console, arguments);
+        };
+        var origWarn = console.warn;
+        console.warn = function() {
+          var firstArg = arguments[0];
+          if (firstArg && isIgnored(firstArg)) {
+            return;
+          }
+          return origWarn.apply(console, arguments);
+        };
         window.addEventListener('unhandledrejection', function(e) {
           var reason = e && (e.reason ? (e.reason.message || e.reason) : '');
           if (isIgnored(reason)) {
@@ -30,6 +59,23 @@
             e.stopImmediatePropagation();
           }
         }, true);
+        // Suppress any Vite error overlay that mentions websocket
+        try {
+          var observer = new MutationObserver(function(mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+              for (var j = 0; j < mutations[i].addedNodes.length; j++) {
+                var node = mutations[i].addedNodes[j];
+                if (node && node.tagName && node.tagName.toLowerCase() === 'vite-error-overlay') {
+                  var text = (node.shadowRoot ? node.shadowRoot.textContent : node.textContent) || '';
+                  if (isIgnored(text)) {
+                    node.remove();
+                  }
+                }
+              }
+            }
+          });
+          observer.observe(document.documentElement, { childList: true, subtree: true });
+        } catch (e) {}
       })();
     </script>
   </head>

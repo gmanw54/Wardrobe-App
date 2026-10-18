@@ -1,12 +1,12 @@
 /**
  * ============================================================================
- * AURA WARDROBE & AI STYLIST - COMPLETE EXPO REACT NATIVE APPLICATION (App.js)
+ * CLOSET CALCULATOR & AI STYLIST - COMPLETE EXPO REACT NATIVE APPLICATION (App.js)
  * ============================================================================
  * 
  * SETUP INSTRUCTIONS:
  * 1. Create a new Expo project (if not already created):
- *    npx create-expo-app AuraWardrobe
- *    cd AuraWardrobe
+ *    npx create-expo-app ClosetCalculator
+ *    cd ClosetCalculator
  * 
  * 2. Install required Expo SDK and native packages:
  *    npx expo install expo-image-picker @react-native-async-storage/async-storage
@@ -54,9 +54,9 @@ const COLUMN_WIDTH = (SCREEN_WIDTH - 48) / 2;
 
 // Storage Keys
 const STORAGE_KEYS = {
-  WARDROBE: '@aura_wardrobe_items_v1',
-  API_KEY: '@aura_gemini_api_key_v1',
-  SAVED_OUTFITS: '@aura_saved_outfits_v1',
+  WARDROBE: '@closet_calculator_items_v1',
+  API_KEY: '@closet_calculator_gemini_api_key_v1',
+  SAVED_OUTFITS: '@closet_calculator_saved_outfits_v1',
 };
 
 // Default Gemini Model Endpoint (supports gemini-3.8-flash and gemini-flash-latest)
@@ -767,21 +767,23 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
           <TouchableOpacity
             style={[styles.primaryButton, styles.cameraButton]}
             onPress={() => pickImage('camera')}
-            activeOpacity={0.8}
+            activeOpacity={0.7}
             disabled={analyzingImage}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={styles.buttonIcon}>📸</Text>
-            <Text style={styles.primaryButtonText}>Take Photo</Text>
+            <Text style={styles.primaryButtonText} numberOfLines={1}>Take Photo</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.primaryButton, styles.libraryButton]}
             onPress={() => pickImage('library')}
-            activeOpacity={0.8}
+            activeOpacity={0.7}
             disabled={analyzingImage}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
             <Text style={styles.buttonIcon}>🖼️</Text>
-            <Text style={styles.primaryButtonText}>Photo Library</Text>
+            <Text style={styles.primaryButtonText} numberOfLines={1}>Photo Library</Text>
           </TouchableOpacity>
         </View>
 
@@ -1647,7 +1649,7 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
       {/* App Top Navigation Bar */}
       <View style={styles.navBar}>
         <View>
-          <Text style={styles.navBrand}>Aura Wardrobe</Text>
+          <Text style={styles.navBrand}>Closet Calculator</Text>
           <Text style={styles.navSubBrand}>AI Vision & Personal Stylist</Text>
         </View>
 
@@ -1674,7 +1676,8 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
         <TouchableOpacity
           style={[styles.tabItem, activeTab === 'ingest' && styles.tabItemActive]}
           onPress={() => setActiveTab('ingest')}
-          activeOpacity={0.7}
+          activeOpacity={0.6}
+          hitSlop={{ top: 14, bottom: 14, left: 16, right: 16 }}
         >
           <Text style={styles.tabIcon}>📸</Text>
           <Text style={[styles.tabLabel, activeTab === 'ingest' && styles.tabLabelActive]}>
@@ -1685,7 +1688,8 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
         <TouchableOpacity
           style={[styles.tabItem, activeTab === 'gallery' && styles.tabItemActive]}
           onPress={() => setActiveTab('gallery')}
-          activeOpacity={0.7}
+          activeOpacity={0.6}
+          hitSlop={{ top: 14, bottom: 14, left: 16, right: 16 }}
         >
           <Text style={styles.tabIcon}>👗</Text>
           <Text style={[styles.tabLabel, activeTab === 'gallery' && styles.tabLabelActive]}>
@@ -1696,11 +1700,12 @@ Return ONLY a valid JSON object matching this schema without Markdown formatting
         <TouchableOpacity
           style={[styles.tabItem, activeTab === 'generator' && styles.tabItemActive]}
           onPress={() => setActiveTab('generator')}
-          activeOpacity={0.7}
+          activeOpacity={0.6}
+          hitSlop={{ top: 14, bottom: 14, left: 16, right: 16 }}
         >
           <Text style={styles.tabIcon}>✨</Text>
           <Text style={[styles.tabLabel, activeTab === 'generator' && styles.tabLabelActive]}>
-            AI Stylist
+            Stylist
           </Text>
         </TouchableOpacity>
       </View>
@@ -1860,10 +1865,12 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     flex: 1,
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
+    paddingHorizontal: 8,
     borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1875,7 +1882,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F172A',
   },
   libraryButton: {
-    backgroundColor: '#334155',
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
   },
   generateButton: {
     backgroundColor: '#10B981',
@@ -1888,7 +1897,8 @@ const styles = StyleSheet.create({
   primaryButtonText: {
     color: '#FFFFFF',
     fontWeight: '700',
-    fontSize: 15,
+    fontSize: 14,
+    textAlign: 'center',
   },
 
   // Loading Card
@@ -2879,25 +2889,32 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-    paddingVertical: 8,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 10,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+    minHeight: 64,
   },
   tabItem: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 4,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    minHeight: 52,
+    borderRadius: 12,
+    marginHorizontal: 4,
   },
   tabItemActive: {
-    transform: [{ scale: 1.02 }],
+    backgroundColor: '#F1F5F9',
   },
   tabIcon: {
     fontSize: 20,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   tabLabel: {
     fontSize: 11,
     fontWeight: '600',
     color: '#64748B',
+    textAlign: 'center',
   },
   tabLabelActive: {
     color: '#0F172A',

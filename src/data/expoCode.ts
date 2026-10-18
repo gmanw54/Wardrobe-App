@@ -1,9 +1,9 @@
-export const EXPO_INSTALL_COMMANDS = `npx create-expo-app AuraWardrobe
-cd AuraWardrobe
+export const EXPO_INSTALL_COMMANDS = `npx create-expo-app ClosetCalculator
+cd ClosetCalculator
 npx expo install expo-image-picker @react-native-async-storage/async-storage`;
 
 export const EXPO_PACKAGE_JSON = `{
-  "name": "aura-wardrobe-expo",
+  "name": "closet-calculator-expo",
   "version": "1.0.0",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
@@ -28,22 +28,22 @@ export const EXPO_PACKAGE_JSON = `{
 
 export const EXPO_APP_JSON = `{
   "expo": {
-    "name": "Aura Wardrobe",
-    "slug": "aura-wardrobe",
+    "name": "Closet Calculator",
+    "slug": "closet-calculator",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.aurawardrobe.app",
+      "bundleIdentifier": "com.closetcalculator.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "Aura Wardrobe uses the camera to photograph your clothes for AI categorization.",
-        "NSPhotoLibraryUsageDescription": "Aura Wardrobe needs access to your photos to upload garment pictures."
+        "NSCameraUsageDescription": "Closet Calculator uses the camera to photograph your clothes for AI categorization.",
+        "NSPhotoLibraryUsageDescription": "Closet Calculator needs access to your photos to upload garment pictures."
       }
     },
     "android": {
-      "package": "com.aurawardrobe.app",
+      "package": "com.closetcalculator.app",
       "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"]
     },
     "plugins": [
@@ -60,13 +60,13 @@ export const EXPO_APP_JSON = `{
 
 export const EXPO_APP_JS_CODE = `/**
  * ============================================================================
- * AURA WARDROBE & AI STYLIST - COMPLETE EXPO REACT NATIVE APPLICATION (App.js)
+ * CLOSET CALCULATOR & AI STYLIST - COMPLETE EXPO REACT NATIVE APPLICATION (App.js)
  * ============================================================================
  * 
  * SETUP INSTRUCTIONS:
  * 1. Create a new Expo project:
- *    npx create-expo-app AuraWardrobe
- *    cd AuraWardrobe
+ *    npx create-expo-app ClosetCalculator
+ *    cd ClosetCalculator
  * 
  * 2. Install required Expo SDK and native packages:
  *    npx expo install expo-image-picker @react-native-async-storage/async-storage
@@ -107,9 +107,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const COLUMN_WIDTH = (SCREEN_WIDTH - 48) / 2;
 
 const STORAGE_KEYS = {
-  WARDROBE: '@aura_wardrobe_items_v1',
-  API_KEY: '@aura_gemini_api_key_v1',
-  SAVED_OUTFITS: '@aura_saved_outfits_v1',
+  WARDROBE: '@closet_calculator_items_v1',
+  API_KEY: '@closet_calculator_gemini_api_key_v1',
+  SAVED_OUTFITS: '@closet_calculator_saved_outfits_v1',
 };
 
 const DEFAULT_MODEL = 'gemini-3.8-flash';
@@ -470,7 +470,7 @@ Return ONLY JSON matching:
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
       <View style={styles.navBar}>
-        <Text style={styles.navBrand}>Aura Wardrobe</Text>
+        <Text style={styles.navBrand}>Closet Calculator</Text>
         <TouchableOpacity onPress={() => { setTempApiKeyInput(geminiApiKey); setIsSettingsVisible(true); }}>
           <Text style={{ fontSize: 20 }}>⚙️</Text>
         </TouchableOpacity>
@@ -481,11 +481,23 @@ Return ONLY JSON matching:
           <ScrollView contentContainerStyle={styles.scrollContent}>
             <Text style={styles.screenTitle}>Add New Clothing</Text>
             <View style={styles.actionButtonRow}>
-              <TouchableOpacity style={styles.primaryButton} onPress={() => pickImage('camera')}>
-                <Text style={styles.primaryButtonText}>📸 Take Photo</Text>
+              <TouchableOpacity
+                style={[styles.primaryButton, styles.cameraButton]}
+                onPress={() => pickImage('camera')}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.buttonIcon}>📸</Text>
+                <Text style={styles.primaryButtonText}>Take Photo</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.primaryButton, { backgroundColor: '#334155' }]} onPress={() => pickImage('library')}>
-                <Text style={styles.primaryButtonText}>🖼️ Library</Text>
+              <TouchableOpacity
+                style={[styles.primaryButton, styles.libraryButton]}
+                onPress={() => pickImage('library')}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={styles.buttonIcon}>🖼️</Text>
+                <Text style={styles.primaryButtonText}>Photo Library</Text>
               </TouchableOpacity>
             </View>
 
@@ -687,19 +699,34 @@ Return ONLY JSON matching:
         )}
       </View>
 
-      {/* Bottom Tabs */}
+      {/* Bottom Tabs - Generous touch targets with hitSlop to eliminate miss clicks */}
       <View style={styles.tabBar}>
-        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('ingest')}>
-          <Text style={{ fontSize: 18 }}>📸</Text>
-          <Text style={[styles.tabText, activeTab === 'ingest' && { fontWeight: '700' }]}>Add Clothes</Text>
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'ingest' && styles.tabItemActive]}
+          onPress={() => setActiveTab('ingest')}
+          activeOpacity={0.6}
+          hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+        >
+          <Text style={styles.tabIcon}>📸</Text>
+          <Text style={[styles.tabText, activeTab === 'ingest' && styles.tabTextActive]}>Add Clothes</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('gallery')}>
-          <Text style={{ fontSize: 18 }}>👗</Text>
-          <Text style={[styles.tabText, activeTab === 'gallery' && { fontWeight: '700' }]}>Wardrobe</Text>
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'gallery' && styles.tabItemActive]}
+          onPress={() => setActiveTab('gallery')}
+          activeOpacity={0.6}
+          hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+        >
+          <Text style={styles.tabIcon}>👗</Text>
+          <Text style={[styles.tabText, activeTab === 'gallery' && styles.tabTextActive]}>Wardrobe</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('generator')}>
-          <Text style={{ fontSize: 18 }}>✨</Text>
-          <Text style={[styles.tabText, activeTab === 'generator' && { fontWeight: '700' }]}>Stylist</Text>
+        <TouchableOpacity
+          style={[styles.tabItem, activeTab === 'generator' && styles.tabItemActive]}
+          onPress={() => setActiveTab('generator')}
+          activeOpacity={0.6}
+          hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+        >
+          <Text style={styles.tabIcon}>✨</Text>
+          <Text style={[styles.tabText, activeTab === 'generator' && styles.tabTextActive]}>Stylist</Text>
         </TouchableOpacity>
       </View>
 
@@ -775,17 +802,51 @@ const styles = StyleSheet.create({
   scrollContent: { padding: 16 },
   screenTitle: { fontSize: 20, fontWeight: '700', marginBottom: 12 },
   actionButtonRow: { flexDirection: 'row', gap: 12 },
-  primaryButton: { flex: 1, backgroundColor: '#0F172A', padding: 14, borderRadius: 10, alignItems: 'center' },
-  primaryButtonText: { color: '#FFF', fontWeight: '700' },
+  primaryButton: {
+    flex: 1,
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  cameraButton: { backgroundColor: '#0F172A' },
+  libraryButton: { backgroundColor: '#334155' },
+  buttonIcon: { fontSize: 18, marginRight: 8 },
+  primaryButtonText: { color: '#FFF', fontWeight: '700', fontSize: 14, textAlign: 'center' },
   card: { backgroundColor: '#FFF', padding: 16, borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', marginTop: 12 },
   fieldLabel: { fontSize: 12, fontWeight: '700', color: '#475569', marginBottom: 6 },
   input: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 8, padding: 10, fontSize: 14 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F1F5F9', borderRadius: 16, marginRight: 8, height: 36 },
   chipActive: { backgroundColor: '#0F172A' },
   gridCard: { width: COLUMN_WIDTH, backgroundColor: '#FFF', borderRadius: 12, padding: 8, marginBottom: 12, marginRight: 12, borderWidth: 1, borderColor: '#E2E8F0' },
-  tabBar: { flexDirection: 'row', borderTopWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFF', paddingVertical: 8 },
-  tabItem: { flex: 1, alignItems: 'center' },
-  tabText: { fontSize: 11, color: '#64748B', marginTop: 2 },
+  tabBar: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFF',
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 10,
+    minHeight: 64,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    minHeight: 52,
+    borderRadius: 12,
+    marginHorizontal: 4,
+  },
+  tabItemActive: {
+    backgroundColor: '#F1F5F9',
+  },
+  tabIcon: { fontSize: 20, marginBottom: 3 },
+  tabText: { fontSize: 11, color: '#64748B', fontWeight: '600', marginTop: 1 },
+  tabTextActive: { color: '#0F172A', fontWeight: '800' },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
   modalBox: { backgroundColor: '#FFF', borderRadius: 16, padding: 20 },
 });

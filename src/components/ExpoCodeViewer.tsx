@@ -153,8 +153,8 @@ export const ExpoCodeViewer: React.FC = () => {
               </div>
               <div className="relative">
                 <pre className="p-3 bg-slate-950 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto border border-slate-800">
-{`npx create-expo-app AuraWardrobe
-cd AuraWardrobe
+{`npx create-expo-app ClosetCalculator
+cd ClosetCalculator
 npx expo install expo-image-picker @react-native-async-storage/async-storage`}
                 </pre>
                 <button

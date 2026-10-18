@@ -57,7 +57,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
   // Wardrobe state
   const [wardrobe, setWardrobe] = useState<WardrobeItem[]>(() => {
     try {
-      const saved = localStorage.getItem('aura_wardrobe_items');
+      const saved = localStorage.getItem('closet_calculator_items') || localStorage.getItem('aura_wardrobe_items');
       return saved ? JSON.parse(saved) : INITIAL_WARDROBE_SEED;
     } catch {
       return INITIAL_WARDROBE_SEED;
@@ -95,7 +95,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
   // Outfit Generation History (persisted)
   const [generationHistory, setGenerationHistory] = useState<OutfitGenerationHistoryItem[]>(() => {
     try {
-      const stored = localStorage.getItem('aura_outfit_generation_history');
+      const stored = localStorage.getItem('closet_calculator_outfit_generation_history') || localStorage.getItem('aura_outfit_generation_history');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -140,14 +140,14 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
 
   useEffect(() => {
     try {
-      localStorage.setItem('aura_outfit_generation_history', JSON.stringify(generationHistory));
+      localStorage.setItem('closet_calculator_outfit_generation_history', JSON.stringify(generationHistory));
     } catch {}
   }, [generationHistory]);
 
   // User styling model / photo of me state
   const [userPhoto, setUserPhoto] = useState<string | null>(() => {
     try {
-      return localStorage.getItem('aura_user_styling_photo');
+      return localStorage.getItem('closet_calculator_user_styling_photo') || localStorage.getItem('aura_user_styling_photo');
     } catch {
       return null;
     }
@@ -157,7 +157,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
   // Saved Outfits state (persisted to localStorage in web, AsyncStorage in native)
   const [savedOutfits, setSavedOutfits] = useState<SavedOutfit[]>(() => {
     try {
-      const stored = localStorage.getItem('aura_saved_outfits');
+      const stored = localStorage.getItem('closet_calculator_saved_outfits') || localStorage.getItem('aura_saved_outfits');
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
@@ -181,7 +181,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
   // Sync saved outfits to storage safely
   useEffect(() => {
     try {
-      localStorage.setItem('aura_saved_outfits', JSON.stringify(savedOutfits));
+      localStorage.setItem('closet_calculator_saved_outfits', JSON.stringify(savedOutfits));
     } catch {
       // Storage quota exceeded; keep in memory
     }
@@ -223,9 +223,9 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
   useEffect(() => {
     try {
       if (userPhoto) {
-        localStorage.setItem('aura_user_styling_photo', userPhoto);
+        localStorage.setItem('closet_calculator_user_styling_photo', userPhoto);
       } else {
-        localStorage.removeItem('aura_user_styling_photo');
+        localStorage.removeItem('closet_calculator_user_styling_photo');
       }
     } catch {
       // Storage quota exceeded for large base64; keep in memory
@@ -235,7 +235,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
   // Sync wardrobe to local storage safely
   useEffect(() => {
     try {
-      localStorage.setItem('aura_wardrobe_items', JSON.stringify(wardrobe));
+      localStorage.setItem('closet_calculator_items', JSON.stringify(wardrobe));
     } catch {
       // Storage quota exceeded; keep in memory
     }
@@ -632,7 +632,7 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <h1 className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white">
-                  Aura Wardrobe
+                  Closet Calculator
                 </h1>
               </div>
               <p className="text-[10px] text-slate-500 font-medium">Expo React Native Mobile App</p>
@@ -1750,41 +1750,41 @@ export const PhoneSimulator: React.FC<PhoneSimulatorProps> = ({ onOpenCodeViewer
           {/* ============================================================= */}
           {/* BOTTOM MOBILE TAB BAR */}
           {/* ============================================================= */}
-          <div className="h-14 px-3 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-around z-30">
+          <div className="h-16 px-2 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 flex items-center justify-around z-30">
             <button
               onClick={() => setActiveTab('ingest')}
-              className={`flex flex-col items-center py-1 transition ${
+              className={`flex-1 h-full flex flex-col items-center justify-center py-2 transition rounded-xl ${
                 activeTab === 'ingest'
-                  ? 'text-emerald-600 dark:text-emerald-400 font-bold scale-105'
-                  : 'text-slate-400 hover:text-slate-600'
+                  ? 'bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800/50'
               }`}
             >
               <Camera className="w-5 h-5 mb-0.5" />
-              <span className="text-[10px]">Add Clothes</span>
+              <span className="text-[11px] font-semibold">Add Clothes</span>
             </button>
 
             <button
               onClick={() => setActiveTab('gallery')}
-              className={`flex flex-col items-center py-1 transition ${
+              className={`flex-1 h-full flex flex-col items-center justify-center py-2 transition rounded-xl ${
                 activeTab === 'gallery'
-                  ? 'text-emerald-600 dark:text-emerald-400 font-bold scale-105'
-                  : 'text-slate-400 hover:text-slate-600'
+                  ? 'bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800/50'
               }`}
             >
               <Grid className="w-5 h-5 mb-0.5" />
-              <span className="text-[10px]">Wardrobe ({wardrobe.length})</span>
+              <span className="text-[11px] font-semibold">Wardrobe ({wardrobe.length})</span>
             </button>
 
             <button
               onClick={() => setActiveTab('generator')}
-              className={`flex flex-col items-center py-1 transition ${
+              className={`flex-1 h-full flex flex-col items-center justify-center py-2 transition rounded-xl ${
                 activeTab === 'generator'
-                  ? 'text-emerald-600 dark:text-emerald-400 font-bold scale-105'
-                  : 'text-slate-400 hover:text-slate-600'
+                  ? 'bg-slate-100 dark:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-bold'
+                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800/50'
               }`}
             >
               <Sparkles className="w-5 h-5 mb-0.5" />
-              <span className="text-[10px]">AI Stylist</span>
+              <span className="text-[11px] font-semibold">Stylist</span>
             </button>
           </div>
 

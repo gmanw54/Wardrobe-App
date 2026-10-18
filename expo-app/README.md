@@ -1,4 +1,4 @@
-# Aura Wardrobe & AI Stylist (Expo React Native)
+# Closet Calculator & AI Stylist (Expo React Native)
 
 A cross-platform mobile wardrobe archivist and personal styling application built with React Native and Expo SDK 51, powered by Google Gemini AI vision and reasoning models.
 
@@ -15,8 +15,8 @@ A cross-platform mobile wardrobe archivist and personal styling application buil
 ### 2. Project Setup
 ```bash
 # Initialize project directory (or copy these files)
-npx create-expo-app AuraWardrobe
-cd AuraWardrobe
+npx create-expo-app ClosetCalculator
+cd ClosetCalculator
 
 # Install required native & Expo SDK dependencies
 npx expo install expo-image-picker @react-native-async-storage/async-storage

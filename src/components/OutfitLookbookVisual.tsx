@@ -38,10 +38,11 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
   const [isComparingWithOriginal, setIsComparingWithOriginal] = useState<boolean>(false);
 
   // Gemini AI Generated Image state
-  const cacheKey = `aura_gemini_look_${outfit.title}_${season}`;
+  const cacheKey = `closet_calc_look_${outfit.title}_${season}`;
+  const legacyCacheKey = `aura_gemini_look_${outfit.title}_${season}`;
   const [geminiImage, setGeminiImage] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(cacheKey) || outfit.lookbook_image_url || null;
+      return localStorage.getItem(cacheKey) || localStorage.getItem(legacyCacheKey) || outfit.lookbook_image_url || null;
     } catch {
       return outfit.lookbook_image_url || null;
     }
@@ -136,7 +137,7 @@ export const OutfitLookbookVisual: React.FC<OutfitLookbookVisualProps> = ({
         const oldLookKeys: string[] = [];
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k && k.startsWith('aura_gemini_look_') && k !== cacheKey) {
+          if (k && (k.startsWith('closet_calc_look_') || k.startsWith('aura_gemini_look_')) && k !== cacheKey) {
             oldLookKeys.push(k);
           }
         }
